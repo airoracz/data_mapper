@@ -146,7 +146,10 @@ class UserDto
 ```
 
 - These attributes always win over `#[MapProperty]` opt-in in public-only mode.
-- In strict mode, a key of a property skipped on input is reported as unknown.
+- In strict mode, an `#[Ignore]` key is reported as unknown. An `#[OutputOnly]` key is accepted and discarded -
+  it is part of the public contract, so a client echoing a response back (e.g. PUT) does not fail.
+- `#[Ignore]` / `#[OutputOnly]` on a property also block a same-named plain constructor parameter, so the
+  property cannot be set through `__construct(string $role) { $this->role = $role; }`.
 - On a promoted constructor parameter skipped on input, the default value (or `null`) is used;
   a required one throws `LogicException`.
 

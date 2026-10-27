@@ -48,6 +48,21 @@ class PropertyVisibilityResolver
     }
 
     /**
+     * Whether the property's key is accepted in strict mode. Output-only properties are part
+     * of the public contract, so echoing a response back (e.g. PUT) must not fail on them -
+     * their values are accepted and discarded, never hydrated.
+     */
+    public static function isPropertyKnownForInput(ReflectionProperty $property, bool $publicPropertiesOnly): bool
+    {
+        if (self::isPropertyDenormalizable($property, $publicPropertiesOnly)) {
+            return true;
+        }
+
+        return self::hasAnyAttribute($property, [OutputOnly::class])
+            && self::isPropertyNormalizable($property, $publicPropertiesOnly);
+    }
+
+    /**
      * Whether the constructor parameter is hydrated from input.
      *
      * #[Ignore]/#[OutputOnly] on the parameter or on the same-named property exclude it -

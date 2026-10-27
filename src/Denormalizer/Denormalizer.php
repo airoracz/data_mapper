@@ -1084,8 +1084,11 @@ class Denormalizer
             }
         }
 
-        // Collect keys from properties
-        foreach ($this->getMappableProperties($reflection) as $property) {
+        // Collect keys from properties (including output-only ones - accepted and discarded)
+        foreach ($reflection->getProperties() as $property) {
+            if (!PropertyVisibilityResolver::isPropertyKnownForInput($property, $this->publicPropertiesOnly)) {
+                continue;
+            }
             $dateTimeAttributes = $property->getAttributes(MapDateTimeProperty::class);
             $propertyAttributes = $property->getAttributes(MapProperty::class);
             $path = $this->getPathFromProperty($dateTimeAttributes, $propertyAttributes);

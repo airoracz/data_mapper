@@ -482,6 +482,11 @@ class Mapper
                     continue; // Skip unknown properties in non-strict mode
                 }
 
+                // Known but output-only key - accepted and discarded
+                if (!PropertyVisibilityResolver::isPropertyDenormalizable($property, $this->publicPropertiesOnly)) {
+                    continue;
+                }
+
                 // Get property type information
                 $dateTimeAttributes = $property->getAttributes(\Pocta\DataMapper\Attributes\MapDateTimeProperty::class);
                 $propertyAttributes = $property->getAttributes(\Pocta\DataMapper\Attributes\MapProperty::class);
@@ -518,7 +523,7 @@ class Mapper
     private function findPropertyByJsonKey(\ReflectionClass $reflection, string $jsonKey): ?\ReflectionProperty
     {
         foreach ($reflection->getProperties() as $property) {
-            if (!PropertyVisibilityResolver::isPropertyDenormalizable($property, $this->publicPropertiesOnly)) {
+            if (!PropertyVisibilityResolver::isPropertyKnownForInput($property, $this->publicPropertiesOnly)) {
                 continue;
             }
 

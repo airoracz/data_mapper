@@ -121,12 +121,61 @@ class IgnoreAttributeTest extends TestCase
         (new Mapper(MapperOptions::withStrictMode()))->fromArray(['name' => 'John', 'internal' => 'x'], IgnoreDto::class);
     }
 
-    public function testStrictModeRejectsOutputOnlyPromotedParameterKeyAsUnknown(): void
+    public function testStrictModeAcceptsAndDiscardsOutputOnlyPromotedParameterKey(): void
+    {
+        $dto = (new Mapper(MapperOptions::withStrictMode()))->fromArray(
+            ['name' => 'John', 'role' => 'admin'],
+            IgnoreCtorDto::class
+        );
+
+        $this->assertSame('user', $dto->role);
+    }
+
+    public function testStrictModeAcceptsAndDiscardsOutputOnlyPropertyKey(): void
+    {
+        $dto = (new Mapper(MapperOptions::withStrictMode()))->fromArray(
+            ['name' => 'John', 'role' => 'admin'],
+            IgnoreDto::class
+        );
+
+        $this->assertSame('user', $dto->role);
+    }
+
+    public function testStrictModeAcceptsOutputOnlyKeyOfNonPromotedConstructorParameter(): void
+    {
+        $dto = (new Mapper(MapperOptions::withStrictMode()))->fromArray(
+            ['name' => 'John', 'role' => 'admin'],
+            IgnoreAssignedInCtorDto::class
+        );
+
+        $this->assertSame('user', $dto->role);
+    }
+
+    public function testMergeInStrictModeAcceptsAndDiscardsOutputOnlyKey(): void
+    {
+        $dto = (new Mapper(MapperOptions::withStrictMode()))->merge(['role' => 'admin'], new IgnoreDto());
+
+        $this->assertSame('user', $dto->role);
+    }
+
+    public function testMergeInStrictModeRejectsIgnoredKey(): void
     {
         $this->expectException(ValidationException::class);
-        $this->expectExceptionMessage("Unknown key 'role'");
+        $this->expectExceptionMessage("Unknown key 'internal'");
 
-        (new Mapper(MapperOptions::withStrictMode()))->fromArray(['name' => 'John', 'role' => 'admin'], IgnoreCtorDto::class);
+        (new Mapper(MapperOptions::withStrictMode()))->merge(['internal' => 'x'], new IgnoreDto());
+    }
+
+    public function testStrictModeRoundTripOfOutputWorks(): void
+    {
+        $mapper = new Mapper(MapperOptions::withStrictMode());
+        $original = new IgnoreDto();
+        $original->name = 'John';
+
+        $dto = $mapper->fromJson($mapper->toJson($original), IgnoreDto::class);
+
+        $this->assertSame('John', $dto->name);
+        $this->assertSame('user', $dto->role);
     }
 
     public function testStrictModeAcceptsInputOnlyKey(): void
