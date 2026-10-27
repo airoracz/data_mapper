@@ -5,6 +5,8 @@ parameters:
         - tests
     excludePaths:
         - tests/Fixtures
+        # Uses PHP 8.4 asymmetric visibility fixture; runs only on PHP >= 8.4 (RequiresPhp)
+        - tests/AsymmetricVisibilityTest.php
     ignoreErrors:
         -
             identifier: argument.type

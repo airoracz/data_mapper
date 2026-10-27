@@ -32,7 +32,7 @@ class PropertyVisibilityResolver
             return false;
         }
 
-        return self::isPropertyVisible($property, $publicPropertiesOnly);
+        return self::isPropertyVisible($property, $publicPropertiesOnly, forWriting: false);
     }
 
     /**
@@ -44,7 +44,7 @@ class PropertyVisibilityResolver
             return false;
         }
 
-        return self::isPropertyVisible($property, $publicPropertiesOnly);
+        return self::isPropertyVisible($property, $publicPropertiesOnly, forWriting: true);
     }
 
     /**
@@ -74,24 +74,52 @@ class PropertyVisibilityResolver
             return true;
         }
 
-        if ($property !== null && $property->isPublic()) {
+        if ($property !== null && self::isPubliclyWritable($property)) {
             return true;
         }
 
         return self::hasAnyAttribute($parameter, [MapProperty::class, MapDateTimeProperty::class]);
     }
 
-    private static function isPropertyVisible(ReflectionProperty $property, bool $publicPropertiesOnly): bool
+    private static function isPropertyVisible(ReflectionProperty $property, bool $publicPropertiesOnly, bool $forWriting): bool
     {
         if ($property->isStatic()) {
             return false;
         }
 
-        if (!$publicPropertiesOnly || $property->isPublic()) {
+        if (!$publicPropertiesOnly) {
+            return true;
+        }
+
+        if ($forWriting ? self::isPubliclyWritable($property) : $property->isPublic()) {
             return true;
         }
 
         return self::hasAnyAttribute($property, [MapProperty::class, MapDateTimeProperty::class]);
+    }
+
+    /**
+     * Public for writing - excludes PHP 8.4 asymmetric visibility (`public private(set)`,
+     * `public protected(set)`), where isPublic() reports only read visibility.
+     * Readonly properties are implicitly protected(set) in PHP 8.4 but stay writable here,
+     * as in earlier PHP versions (initialization via reflection is their intended use).
+     */
+    private static function isPubliclyWritable(ReflectionProperty $property): bool
+    {
+        if (!$property->isPublic()) {
+            return false;
+        }
+
+        if ($property->isReadOnly()) {
+            return true;
+        }
+
+        // PHP < 8.4 has no asymmetric visibility
+        if (!method_exists($property, 'isPrivateSet') || !method_exists($property, 'isProtectedSet')) {
+            return true;
+        }
+
+        return !$property->isPrivateSet() && !$property->isProtectedSet();
     }
 
     /**
