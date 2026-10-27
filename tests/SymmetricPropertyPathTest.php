@@ -85,7 +85,74 @@ class SymmetricPropertyPathTest extends TestCase
         PropertyPathResolver::set($data, 'address.zip', '11000');
         PropertyPathResolver::set($data, 'tags[1]', 'b');
 
-        $this->assertSame(['address' => ['city' => 'Prague', 'zip' => '11000'], 'tags' => [1 => 'b']], $data);
+        $this->assertSame(['address' => ['city' => 'Prague', 'zip' => '11000'], 'tags' => [null, 'b']], $data);
+    }
+
+    public function testResolverSetRejectsDescendingIntoScalar(): void
+    {
+        $data = ['meta' => 'x'];
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("'meta'");
+
+        PropertyPathResolver::set($data, 'meta.source', 's');
+    }
+
+    public function testResolverSetKeepsListWhenIndexesWrittenOutOfOrder(): void
+    {
+        $data = [];
+
+        PropertyPathResolver::set($data, 'items[1].name', 'b');
+        PropertyPathResolver::set($data, 'items[0].name', 'a');
+
+        $this->assertSame(['items' => [['name' => 'a'], ['name' => 'b']]], $data);
+    }
+
+    public function testIndexedPathIsEncodedAsJsonList(): void
+    {
+        $json = $this->createMapper()->toJson(new SymmetricSecondItemDto());
+
+        $this->assertSame('{"items":[null,{"name":"second"}]}', $json);
+    }
+
+    public function testIndexedPathRoundTrips(): void
+    {
+        $mapper = $this->createMapper();
+
+        $dto = $mapper->fromJson($mapper->toJson(new SymmetricSecondItemDto()), SymmetricSecondItemDto::class);
+
+        $this->assertSame('second', $dto->name);
+    }
+
+    public function testPlainPropertyCollidingWithPathRootThrows(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('meta');
+
+        $this->createMapper()->toArray(new SymmetricPlainThenPathDto());
+    }
+
+    public function testPathCollidingWithEarlierPlainPropertyThrows(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('meta');
+
+        $this->createMapper()->toArray(new SymmetricPathThenPlainDto());
+    }
+
+    public function testTwoPropertiesWithSamePathThrow(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('address.city');
+
+        $this->createMapper()->toArray(new SymmetricDuplicatePathDto());
+    }
+
+    public function testToCsvUsesFlatColumnsWithSymmetricPaths(): void
+    {
+        $csv = $this->createMapper()->toCsv([$this->createAddressDto()]);
+
+        $this->assertSame("name,city,zip\nOffice,Prague,11000\n", $csv);
     }
 
     public function testResolverSetRejectsPathStartingWithIndex(): void
@@ -130,4 +197,35 @@ class SymmetricDateTimeDto
 {
     #[MapDateTimeProperty(path: 'meta.created', outputFormat: 'Y-m-d')]
     public DateTimeImmutable $createdAt;
+}
+
+class SymmetricSecondItemDto
+{
+    #[MapProperty(path: 'items[1].name')]
+    public string $name = 'second';
+}
+
+class SymmetricPlainThenPathDto
+{
+    public string $meta = 'x';
+
+    #[MapProperty(path: 'meta.source')]
+    public string $source = 's';
+}
+
+class SymmetricPathThenPlainDto
+{
+    #[MapProperty(path: 'meta.source')]
+    public string $source = 's';
+
+    public string $meta = 'x';
+}
+
+class SymmetricDuplicatePathDto
+{
+    #[MapProperty(path: 'address.city')]
+    public string $city = 'Prague';
+
+    #[MapProperty(path: 'address.city')]
+    public string $town = 'Brno';
 }

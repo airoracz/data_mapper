@@ -169,12 +169,16 @@ class PropertyPathResolver
      * Inverse of resolve(): resolve(set($data, $path, $v), $path) === $v.
      *
      * The path must start with a property name, so only string keys are added at the top level.
+     * Index segments keep lists sequential: missing lower indexes are filled with null, so
+     * "items[1]" produces [null, $value] (a JSON list), not [1 => $value] (a JSON object).
+     * Existing scalars are never overwritten by intermediate segments - that would lose data.
      *
      * @template TKey of array-key
      * @param array<TKey, mixed> $data Target data (modified in place)
      * @param-out array<TKey|string, mixed> $data
      * @param string $path Property path (e.g., "address.city", "addresses[0].street")
-     * @throws InvalidArgumentException If path syntax is invalid or the path starts with an array index
+     * @throws InvalidArgumentException If path syntax is invalid, the path starts with an array index,
+     *                                  or an intermediate segment holds a non-array value
      */
     public static function set(array &$data, string $path, mixed $value): void
     {
@@ -184,12 +188,31 @@ class PropertyPathResolver
         }
 
         $current = &$data;
+        $traversed = '';
 
         foreach ($segments as $segment) {
-            $key = $segment['type'] === 'index' ? $segment['index'] ?? 0 : $segment['key'] ?? '';
-            if (!is_array($current)) {
+            if ($current === null) {
                 $current = [];
             }
+            if (!is_array($current)) {
+                throw new InvalidArgumentException(
+                    "Cannot write path '{$path}': '{$traversed}' holds a non-array value"
+                );
+            }
+
+            if ($segment['type'] === 'index') {
+                $key = $segment['index'] ?? 0;
+                if (array_is_list($current)) {
+                    for ($i = count($current); $i < $key; $i++) {
+                        $current[$i] = null;
+                    }
+                }
+                $traversed .= "[{$key}]";
+            } else {
+                $key = $segment['key'] ?? '';
+                $traversed .= ($traversed === '' ? '' : '.') . $key;
+            }
+
             if (!array_key_exists($key, $current)) {
                 $current[$key] = null;
             }

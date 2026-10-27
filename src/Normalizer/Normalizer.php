@@ -46,6 +46,14 @@ class Normalizer
     }
 
     /**
+     * Check if properties with a `path` are written back into the nested structure.
+     */
+    public function isSymmetricPropertyPaths(): bool
+    {
+        return $this->symmetricPropertyPaths;
+    }
+
+    /**
      * Enable or disable normalization of public properties only.
      */
     public function setPublicPropertiesOnly(bool $publicPropertiesOnly): void
@@ -98,9 +106,8 @@ class Normalizer
                     $normalizedValue = $this->normalizeValue($value, $typeName, $arrayOf, $classType, $outputFormat);
                     // Apply post-normalization filters, if any
                     $normalizedValue = $this->applyFilters($property, $normalizedValue);
-                    $path = $this->symmetricPropertyPaths ? $this->getPath($property) : null;
-                    if ($path !== null) {
-                        PropertyPathResolver::set($data, $path, $normalizedValue);
+                    if ($this->symmetricPropertyPaths) {
+                        $this->writeOutputValue($data, $property, $jsonKey, $normalizedValue);
                     } else {
                         $data[$jsonKey] = $normalizedValue;
                     }
@@ -138,6 +145,45 @@ class Normalizer
         }
 
         return $property->getName();
+    }
+
+    /**
+     * Writes a value to its key or path, refusing to overwrite a value written by another property.
+     * With symmetric paths, a plain key and a path can target the same output location
+     * (e.g. $meta and path "meta.source"); silently overwriting would drop a field.
+     *
+     * @param array<string, mixed> $data
+     *
+     * @throws \LogicException When the target is already taken by another property.
+     */
+    private function writeOutputValue(array &$data, ReflectionProperty $property, string $jsonKey, mixed $value): void
+    {
+        $path = $this->getPath($property);
+        $target = $path ?? $jsonKey;
+        $collision = sprintf(
+            'Cannot normalize %s::$%s: output location "%s" collides with another property',
+            $property->getDeclaringClass()->getName(),
+            $property->getName(),
+            $target
+        );
+
+        if ($path === null) {
+            if (array_key_exists($jsonKey, $data)) {
+                throw new \LogicException($collision);
+            }
+            $data[$jsonKey] = $value;
+            return;
+        }
+
+        if (PropertyPathResolver::exists($data, $path)) {
+            throw new \LogicException($collision);
+        }
+
+        try {
+            PropertyPathResolver::set($data, $path, $value);
+        } catch (\InvalidArgumentException $e) {
+            throw new \LogicException($collision . ': ' . $e->getMessage(), 0, $e);
+        }
     }
 
     /**

@@ -1027,6 +1027,10 @@ class Mapper
         $this->profiler?->start('toCsv');
         $this->debugger?->logOperation('toCsv', ['count' => count($collection)]);
 
+        // CSV is flat - write properties with a path to flat columns, not nested arrays
+        $symmetricPropertyPaths = $this->normalizer->isSymmetricPropertyPaths();
+        $this->normalizer->setSymmetricPropertyPaths(false);
+
         try {
             if (empty($collection)) {
                 return '';
@@ -1063,6 +1067,7 @@ class Mapper
 
             return $csv !== false ? $csv : '';
         } finally {
+            $this->normalizer->setSymmetricPropertyPaths($symmetricPropertyPaths);
             $this->profiler?->stop('toCsv');
         }
     }
