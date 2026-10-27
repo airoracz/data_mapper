@@ -144,17 +144,31 @@ src/
 ## Error Handling
 
 ```php
-use InvalidArgumentException;
 use JsonException;
+use Pocta\DataMapper\Exceptions\InvalidInputException;
+use Pocta\DataMapper\Exceptions\ValidationException;
 
 try {
     $user = $mapper->fromJson($json, User::class);
 } catch (JsonException $e) {
-    // Invalid JSON format
-} catch (InvalidArgumentException $e) {
-    // Mapping error (invalid type, missing required field, etc.)
+    // Malformed JSON, or nesting deeper than MapperOptions::$jsonDepth      → client error (400)
+} catch (InvalidInputException $e) {
+    // Wrong input shape: JSON scalar/null/list where an object is expected → client error (400)
+} catch (ValidationException $e) {
+    // Invalid value, missing required field, unknown key in strict mode    → client error (422)
+    $errors = $e->getErrors();
 }
 ```
+
+Both `InvalidInputException` and `ValidationException` extend `InvalidArgumentException`, so existing
+`catch (InvalidArgumentException)` blocks keep working. Anything else (e.g. `LogicException` for a
+misconfigured DTO, `TypeError`) is a programming error.
+
+Input shape rules:
+
+- `fromJson()` requires a JSON object at the top level - `"str"`, `1`, `null`, `[1, 2]` and even `[]` are rejected.
+- `fromArray()` rejects a non-empty list (`[1, 2]`); an empty array is accepted as an empty object.
+- `fromJsonCollection()` requires a JSON array, and `fromArrayCollection()` requires every element to be an associative array.
 
 ## Examples
 

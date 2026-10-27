@@ -245,8 +245,25 @@ $data = $mapper->toArray($event);
 - **Mutually exclusive**: Cannot use both `name` and `path` parameters together
 - **Nullable handling**: If path doesn't exist and property is nullable, returns `null`
 - **Non-nullable**: If path doesn't exist and property is required, throws `ValidationException`
-- **Strict mode**: Properties with `path` parameter are excluded from unknown key validation
+- **Strict mode**: The root key of a `path` (e.g. `address` for `address.city`) is accepted as known; keys nested under it are not validated
 - **Type safety**: All type conversions and filters work normally with path-resolved values
+- **Normalization**: By default, a property with `path` is written to output as a flat key (the property name),
+  so `toArray()` output cannot be fed back to `fromArray()`. Enable `symmetricPropertyPaths` to write it back
+  into the same nested structure:
+
+```php
+$mapper = new Mapper(new MapperOptions(symmetricPropertyPaths: true));
+
+class AddressDto
+{
+    #[MapProperty(path: 'address.city')]
+    public string $city;
+}
+
+$mapper->toArray($dto);   // ['address' => ['city' => 'Prague']]   (default: ['city' => 'Prague'])
+```
+
+  In 1.x the option defaults to `false` for backward compatibility.
 
 ### Error Handling with Detailed Context
 

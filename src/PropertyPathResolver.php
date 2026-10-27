@@ -165,6 +165,55 @@ class PropertyPathResolver
     }
 
     /**
+     * Writes a value into the data array at the given path, creating intermediate arrays as needed.
+     * Inverse of resolve(): resolve(set($data, $path, $v), $path) === $v.
+     *
+     * The path must start with a property name, so only string keys are added at the top level.
+     *
+     * @template TKey of array-key
+     * @param array<TKey, mixed> $data Target data (modified in place)
+     * @param-out array<TKey|string, mixed> $data
+     * @param string $path Property path (e.g., "address.city", "addresses[0].street")
+     * @throws InvalidArgumentException If path syntax is invalid or the path starts with an array index
+     */
+    public static function set(array &$data, string $path, mixed $value): void
+    {
+        $segments = self::parsePath($path);
+        if ($segments[0]['type'] !== 'property') {
+            throw new InvalidArgumentException("Invalid path for writing: '{$path}' must start with a property name");
+        }
+
+        $current = &$data;
+
+        foreach ($segments as $segment) {
+            $key = $segment['type'] === 'index' ? $segment['index'] ?? 0 : $segment['key'] ?? '';
+            if (!is_array($current)) {
+                $current = [];
+            }
+            if (!array_key_exists($key, $current)) {
+                $current[$key] = null;
+            }
+            $current = &$current[$key];
+        }
+
+        $current = $value;
+    }
+
+    /**
+     * Returns the first segment of a path - the top-level key it reads from.
+     *
+     * @param string $path Property path (e.g. "address.city", "addresses[0].street")
+     * @return string|int Root key ("address", "addresses")
+     * @throws InvalidArgumentException If path syntax is invalid
+     */
+    public static function getRootKey(string $path): string|int
+    {
+        $root = self::parsePath($path)[0];
+
+        return $root['type'] === 'index' ? $root['index'] ?? 0 : $root['key'] ?? '';
+    }
+
+    /**
      * Validates a property path syntax without resolving it
      *
      * @param string $path Property path

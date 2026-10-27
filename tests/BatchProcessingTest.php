@@ -72,11 +72,12 @@ class BatchProcessingTest extends TestCase
         /** @var array<int, array<string, mixed>> $data */
         $data = [
             ['id' => 1, 'name' => 'John', 'active' => true, 'user_age' => 30, 'is_admin' => false, 'unmappedProperty' => 'test'],
-            'invalid', // Not an array - will cause TypeError
+            'invalid', // Not an array - rejected as invalid input
             ['id' => 3, 'name' => 'Bob', 'active' => true, 'user_age' => 35, 'is_admin' => false, 'unmappedProperty' => 'test'],
         ];
 
-        $this->expectException(\TypeError::class);
+        $this->expectException(\Pocta\DataMapper\Exceptions\InvalidInputException::class);
+        $this->expectExceptionMessage('Collection element [1]');
 
         $this->mapper->fromArrayCollection($data, TestClass::class);
     }
