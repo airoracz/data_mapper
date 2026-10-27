@@ -6,6 +6,8 @@ namespace Pocta\DataMapper\Normalizer;
 
 use Pocta\DataMapper\Attributes\MapProperty;
 use Pocta\DataMapper\Attributes\MapDateTimeProperty;
+use Pocta\DataMapper\PropertyPathResolver;
+use Pocta\DataMapper\PropertyVisibilityResolver;
 use Pocta\DataMapper\Types\TypeResolver;
 use ReflectionClass;
 use ReflectionProperty;
@@ -22,6 +24,10 @@ class Normalizer
      */
     private array $objectStack = [];
 
+    private bool $publicPropertiesOnly = false;
+
+    private bool $symmetricPropertyPaths = false;
+
     public function __construct(
         ?TypeResolver $typeResolver = null,
         /** @phpstan-ignore-next-line property.onlyWritten */
@@ -29,6 +35,22 @@ class Normalizer
         private bool $skipNullValues = false
     ) {
         $this->typeResolver = $typeResolver ?? new TypeResolver();
+    }
+
+    /**
+     * Enable or disable writing properties with a `path` back into the same nested structure.
+     */
+    public function setSymmetricPropertyPaths(bool $symmetricPropertyPaths): void
+    {
+        $this->symmetricPropertyPaths = $symmetricPropertyPaths;
+    }
+
+    /**
+     * Enable or disable normalization of public properties only.
+     */
+    public function setPublicPropertiesOnly(bool $publicPropertiesOnly): void
+    {
+        $this->publicPropertiesOnly = $publicPropertiesOnly;
     }
 
     /**
@@ -61,6 +83,10 @@ class Normalizer
             $data = [];
 
             foreach ($reflection->getProperties() as $property) {
+                if (!PropertyVisibilityResolver::isPropertyNormalizable($property, $this->publicPropertiesOnly)) {
+                    continue;
+                }
+
                 $jsonKey = $this->getJsonKey($property);
                 $value = $this->getPropertyValue($property, $object);
 
@@ -72,7 +98,12 @@ class Normalizer
                     $normalizedValue = $this->normalizeValue($value, $typeName, $arrayOf, $classType, $outputFormat);
                     // Apply post-normalization filters, if any
                     $normalizedValue = $this->applyFilters($property, $normalizedValue);
-                    $data[$jsonKey] = $normalizedValue;
+                    $path = $this->symmetricPropertyPaths ? $this->getPath($property) : null;
+                    if ($path !== null) {
+                        PropertyPathResolver::set($data, $path, $normalizedValue);
+                    } else {
+                        $data[$jsonKey] = $normalizedValue;
+                    }
                 }
             }
 
@@ -107,6 +138,24 @@ class Normalizer
         }
 
         return $property->getName();
+    }
+
+    /**
+     * Gets the property path from MapDateTimeProperty or MapProperty attribute.
+     */
+    private function getPath(ReflectionProperty $property): ?string
+    {
+        $dateTimeAttributes = $property->getAttributes(MapDateTimeProperty::class);
+        if (!empty($dateTimeAttributes)) {
+            return $dateTimeAttributes[0]->newInstance()->path;
+        }
+
+        $propertyAttributes = $property->getAttributes(MapProperty::class);
+        if (!empty($propertyAttributes)) {
+            return $propertyAttributes[0]->newInstance()->path;
+        }
+
+        return null;
     }
 
     /**

@@ -12,6 +12,9 @@ class MapperOptions
      * @param bool $throwOnMissingData Throw exception when required data is missing (default: true)
      * @param bool $skipNullValues Skip null values during normalization (don't include them in output)
      * @param bool $preserveNumericStrings Keep numeric strings as strings instead of converting to numbers
+     * @param bool $publicPropertiesOnly Map only public properties; non-public ones only with #[MapProperty] or #[MapDateTimeProperty]
+     * @param bool $symmetricPropertyPaths Normalize properties with a `path` back into the same nested structure (instead of a flat key)
+     * @param int $jsonDepth Maximum nesting depth when decoding JSON input (fromJson, fromJsonCollection)
      */
     public function __construct(
         public readonly bool $autoValidate = false,
@@ -19,7 +22,13 @@ class MapperOptions
         public readonly bool $throwOnMissingData = true,
         public readonly bool $skipNullValues = false,
         public readonly bool $preserveNumericStrings = false,
+        public readonly bool $publicPropertiesOnly = false,
+        public readonly bool $symmetricPropertyPaths = false,
+        public readonly int $jsonDepth = 512,
     ) {
+        if ($jsonDepth < 1) {
+            throw new \InvalidArgumentException(sprintf('jsonDepth must be at least 1, %d given', $jsonDepth));
+        }
     }
 
     /**
@@ -79,6 +88,9 @@ class MapperOptions
         ?bool $throwOnMissingData = null,
         ?bool $skipNullValues = null,
         ?bool $preserveNumericStrings = null,
+        ?bool $publicPropertiesOnly = null,
+        ?bool $symmetricPropertyPaths = null,
+        ?int $jsonDepth = null,
     ): self {
         return new self(
             autoValidate: $autoValidate ?? $this->autoValidate,
@@ -86,6 +98,9 @@ class MapperOptions
             throwOnMissingData: $throwOnMissingData ?? $this->throwOnMissingData,
             skipNullValues: $skipNullValues ?? $this->skipNullValues,
             preserveNumericStrings: $preserveNumericStrings ?? $this->preserveNumericStrings,
+            publicPropertiesOnly: $publicPropertiesOnly ?? $this->publicPropertiesOnly,
+            symmetricPropertyPaths: $symmetricPropertyPaths ?? $this->symmetricPropertyPaths,
+            jsonDepth: $jsonDepth ?? $this->jsonDepth,
         );
     }
 }

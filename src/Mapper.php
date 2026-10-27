@@ -10,6 +10,7 @@ use Pocta\DataMapper\Cache\ClassMetadataFactory;
 use Pocta\DataMapper\Denormalizer\Denormalizer;
 use Pocta\DataMapper\Normalizer\Normalizer;
 use Pocta\DataMapper\Types\TypeResolver;
+use Pocta\DataMapper\PropertyVisibilityResolver;
 use Pocta\DataMapper\Events\EventDispatcher;
 use Pocta\DataMapper\Events\PreDenormalizeEvent;
 use Pocta\DataMapper\Events\PostDenormalizeEvent;
@@ -22,6 +23,7 @@ use Pocta\DataMapper\Validation\ValidatorResolverInterface;
 use Pocta\DataMapper\Debug\Debugger;
 use Pocta\DataMapper\Debug\Profiler;
 use InvalidArgumentException;
+use Pocta\DataMapper\Exceptions\InvalidInputException;
 use JsonException;
 
 class Mapper
@@ -35,6 +37,9 @@ class Mapper
     private bool $autoValidate;
     private bool $strictMode;
     private bool $throwOnMissingData;
+    private bool $publicPropertiesOnly;
+    /** @var int<1, max> */
+    private int $jsonDepth;
     private ?Debugger $debugger;
     private ?Profiler $profiler;
 
@@ -72,15 +77,20 @@ class Mapper
         $this->autoValidate = $options->autoValidate;
         $this->strictMode = $options->strictMode;
         $this->throwOnMissingData = $options->throwOnMissingData;
+        $this->publicPropertiesOnly = $options->publicPropertiesOnly;
+        $this->jsonDepth = max(1, $options->jsonDepth);
         $this->debugger = $debugger;
         $this->profiler = $profiler;
 
         $this->denormalizer = $denormalizer ?? new Denormalizer($this->typeResolver, $this->metadataFactory);
         $this->denormalizer->setStrictMode($this->strictMode);
         $this->denormalizer->setThrowOnMissingData($this->throwOnMissingData);
+        $this->denormalizer->setPublicPropertiesOnly($this->publicPropertiesOnly);
         $this->typeResolver->setStrictMode($this->strictMode);
         $this->typeResolver->setSkipNullValues($options->skipNullValues);
         $this->normalizer = $normalizer ?? new Normalizer($this->typeResolver, $this->metadataFactory, $options->skipNullValues);
+        $this->normalizer->setPublicPropertiesOnly($this->publicPropertiesOnly);
+        $this->normalizer->setSymmetricPropertyPaths($options->symmetricPropertyPaths);
 
         // Setup event listener for debugging events
         if ($this->debugger?->isEnabled()) {
@@ -234,8 +244,9 @@ class Mapper
      *
      * @return T
      *
-     * @throws JsonException
-     * @throws InvalidArgumentException
+     * @throws JsonException When JSON is malformed or exceeds the configured depth.
+     * @throws InvalidInputException When JSON is not an object.
+     * @throws \Pocta\DataMapper\Exceptions\ValidationException
      */
     public function fromJson(string $json, string $className): object
     {
@@ -243,10 +254,12 @@ class Mapper
         $this->debugger?->logOperation('fromJson', $json, $className);
 
         try {
-            $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+            $data = json_decode($json, true, $this->jsonDepth, JSON_THROW_ON_ERROR);
 
-            if (!is_array($data)) {
-                throw new InvalidArgumentException('JSON must decode to an associative array');
+            // Decoding to arrays loses the object/list distinction ("[]" vs "{}"),
+            // so check the top-level JSON token itself.
+            if (!is_array($data) || !$this->jsonStartsWith($json, '{')) {
+                throw new InvalidInputException('JSON must decode to an associative array (object)');
             }
 
             /** @var array<string, mixed> $data */
@@ -261,13 +274,21 @@ class Mapper
      *
      * @template T of object
      *
-     * @param array<string, mixed> $data
+     * @param array<mixed> $data
      * @param class-string<T> $className
      *
      * @return T
+     *
+     * @throws InvalidInputException When data is a non-empty list instead of an associative array.
+     * @throws \Pocta\DataMapper\Exceptions\ValidationException
      */
     public function fromArray(array $data, string $className): object
     {
+        if ($data !== [] && array_is_list($data)) {
+            throw new InvalidInputException('Data must be an associative array (object), list given');
+        }
+        /** @var array<string, mixed> $data */
+
         $this->profiler?->start('fromArray');
         $this->debugger?->logOperation('fromArray', $data, $className);
 
@@ -495,6 +516,10 @@ class Mapper
     private function findPropertyByJsonKey(\ReflectionClass $reflection, string $jsonKey): ?\ReflectionProperty
     {
         foreach ($reflection->getProperties() as $property) {
+            if (!PropertyVisibilityResolver::isPropertyDenormalizable($property, $this->publicPropertiesOnly)) {
+                continue;
+            }
+
             // Check direct match
             if ($property->getName() === $jsonKey) {
                 return $property;
@@ -629,11 +654,12 @@ class Mapper
      *
      * @template T of object
      *
-     * @param array<int, array<string, mixed>> $collection Array of associative arrays.
+     * @param array<mixed> $collection Array of associative arrays.
      * @param class-string<T> $className
      *
      * @return array<int, T> Array of objects.
      *
+     * @throws InvalidInputException When an element is not an associative array.
      * @throws \Pocta\DataMapper\Exceptions\ValidationException
      */
     public function fromArrayCollection(array $collection, string $className): array
@@ -644,6 +670,13 @@ class Mapper
         try {
             $results = [];
             foreach ($collection as $index => $data) {
+                if (!is_array($data) || ($data !== [] && array_is_list($data))) {
+                    throw new InvalidInputException(sprintf(
+                        'Collection element [%s] must be an associative array (object), %s given',
+                        $index,
+                        is_array($data) ? 'list' : get_debug_type($data)
+                    ));
+                }
                 $results[] = $this->fromArray($data, $className);
             }
             return $results;
@@ -672,17 +705,24 @@ class Mapper
         $this->debugger?->logOperation('fromJsonCollection', $json, $className);
 
         try {
-            $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+            $data = json_decode($json, true, $this->jsonDepth, JSON_THROW_ON_ERROR);
 
-            if (!is_array($data)) {
-                throw new InvalidArgumentException('JSON must decode to an array');
+            if (!is_array($data) || !$this->jsonStartsWith($json, '[')) {
+                throw new InvalidInputException('JSON must decode to an array (list)');
             }
 
-            /** @var array<int, array<string, mixed>> $data */
             return $this->fromArrayCollection($data, $className);
         } finally {
             $this->profiler?->stop('fromJsonCollection');
         }
+    }
+
+    /**
+     * Checks the first token of a JSON document, skipping JSON whitespace.
+     */
+    private function jsonStartsWith(string $json, string $token): bool
+    {
+        return str_starts_with(ltrim($json, " \t\n\r"), $token);
     }
 
     /**

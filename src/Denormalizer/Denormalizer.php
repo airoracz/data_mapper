@@ -10,6 +10,7 @@ use Pocta\DataMapper\Attributes\DiscriminatorMap;
 use Pocta\DataMapper\Exceptions\ValidationException;
 use Pocta\DataMapper\Types\TypeResolver;
 use Pocta\DataMapper\PropertyPathResolver;
+use Pocta\DataMapper\PropertyVisibilityResolver;
 use ReflectionClass;
 use ReflectionParameter;
 use ReflectionProperty;
@@ -26,6 +27,8 @@ class Denormalizer
     private bool $strictMode = false;
 
     private bool $throwOnMissingData = true;
+
+    private bool $publicPropertiesOnly = false;
 
     /**
      * Context stack of payloads for nested denormalization levels.
@@ -125,6 +128,22 @@ class Denormalizer
     public function isThrowOnMissingData(): bool
     {
         return $this->throwOnMissingData;
+    }
+
+    /**
+     * Enable or disable mapping of public properties only.
+     */
+    public function setPublicPropertiesOnly(bool $publicPropertiesOnly): void
+    {
+        $this->publicPropertiesOnly = $publicPropertiesOnly;
+    }
+
+    /**
+     * Check if only public properties are mapped.
+     */
+    public function isPublicPropertiesOnly(): bool
+    {
+        return $this->publicPropertiesOnly;
     }
 
     /**
@@ -280,7 +299,7 @@ class Denormalizer
     {
         $instance = $reflection->newInstanceWithoutConstructor();
 
-        foreach ($reflection->getProperties() as $property) {
+        foreach ($this->getMappableProperties($reflection) as $property) {
             $this->setPropertyValue($property, $instance, $data);
         }
 
@@ -297,6 +316,10 @@ class Denormalizer
      */
     private function getParameterValue(ReflectionParameter $parameter, array $data): mixed
     {
+        if (!PropertyVisibilityResolver::isParameterDenormalizable($parameter, $this->publicPropertiesOnly)) {
+            return $this->getUnmappableParameterValue($parameter);
+        }
+
         // Check for MapDateTimeProperty first, then MapProperty
         $dateTimeAttributes = $parameter->getAttributes(MapDateTimeProperty::class);
         $propertyAttributes = $parameter->getAttributes(MapProperty::class);
@@ -358,6 +381,28 @@ class Denormalizer
         // Apply filters AFTER type denormalization
         $typed = $this->applyFiltersToParameter($parameter, $typed);
         return $typed;
+    }
+
+    /**
+     * Resolves a constructor argument for a parameter that must not be hydrated from input.
+     *
+     * @throws \LogicException When the parameter is required - the class cannot be built without input for it.
+     */
+    private function getUnmappableParameterValue(ReflectionParameter $parameter): mixed
+    {
+        if ($parameter->isDefaultValueAvailable()) {
+            return $parameter->getDefaultValue();
+        }
+        if ($parameter->allowsNull()) {
+            return null;
+        }
+
+        throw new \LogicException(sprintf(
+            'Cannot instantiate "%s": constructor parameter $%s is required but excluded from input mapping '
+            . '(#[Ignore], #[OutputOnly], or non-public in public-only mode). Add a default value or make it nullable.',
+            $parameter->getDeclaringClass()?->getName() ?? 'unknown',
+            $parameter->getName()
+        ));
     }
 
     /**
@@ -446,6 +491,21 @@ class Denormalizer
     }
 
     /**
+     * Returns properties that take part in mapping (see PropertyVisibilityResolver).
+     *
+     * @param ReflectionClass<object> $reflection
+     *
+     * @return array<int, ReflectionProperty>
+     */
+    private function getMappableProperties(ReflectionClass $reflection): array
+    {
+        return array_values(array_filter(
+            $reflection->getProperties(),
+            fn(ReflectionProperty $property) => PropertyVisibilityResolver::isPropertyDenormalizable($property, $this->publicPropertiesOnly)
+        ));
+    }
+
+    /**
      * Sets properties that are not in constructor.
      *
      * @param ReflectionClass<object> $reflection
@@ -464,7 +524,7 @@ class Denormalizer
             $constructorParams
         );
 
-        foreach ($reflection->getProperties() as $property) {
+        foreach ($this->getMappableProperties($reflection) as $property) {
             // Skip if property is promoted (already set via constructor)
             if (in_array($property->getName(), $constructorParamNames, true)) {
                 continue;
@@ -1012,28 +1072,26 @@ class Denormalizer
         // Collect keys from constructor parameters
         if ($constructor) {
             foreach ($constructor->getParameters() as $parameter) {
+                if (!PropertyVisibilityResolver::isParameterDenormalizable($parameter, $this->publicPropertiesOnly)) {
+                    continue;
+                }
                 $dateTimeAttributes = $parameter->getAttributes(MapDateTimeProperty::class);
                 $propertyAttributes = $parameter->getAttributes(MapProperty::class);
                 $path = $this->getPathFromParameter($dateTimeAttributes, $propertyAttributes);
-                // If path is used, we can't validate keys in strict mode for nested paths
-                if ($path !== null) {
-                    // For now, we skip validation for path-based properties
-                    continue;
-                }
-                $knownKeys[] = $this->getJsonKeyFromParameter($parameter, $dateTimeAttributes, $propertyAttributes);
+                $knownKeys[] = $path !== null
+                    ? $this->getPathRootKey($path)
+                    : $this->getJsonKeyFromParameter($parameter, $dateTimeAttributes, $propertyAttributes);
             }
         }
 
         // Collect keys from properties
-        foreach ($reflection->getProperties() as $property) {
+        foreach ($this->getMappableProperties($reflection) as $property) {
             $dateTimeAttributes = $property->getAttributes(MapDateTimeProperty::class);
             $propertyAttributes = $property->getAttributes(MapProperty::class);
             $path = $this->getPathFromProperty($dateTimeAttributes, $propertyAttributes);
-            // If path is used, we can't validate keys in strict mode for nested paths
-            if ($path !== null) {
-                continue;
-            }
-            $jsonKey = $this->getJsonKeyFromProperty($property, $dateTimeAttributes, $propertyAttributes);
+            $jsonKey = $path !== null
+                ? $this->getPathRootKey($path)
+                : $this->getJsonKeyFromProperty($property, $dateTimeAttributes, $propertyAttributes);
             if (!in_array($jsonKey, $knownKeys, true)) {
                 $knownKeys[] = $jsonKey;
             }
@@ -1041,10 +1099,24 @@ class Denormalizer
 
         // Check for unknown keys
         foreach (array_keys($data) as $inputKey) {
-            if (!in_array($inputKey, $knownKeys, true)) {
+            if (!in_array((string) $inputKey, $knownKeys, true)) {
                 $fullPath = $this->buildFullFieldPath((string) $inputKey);
                 $this->errors[$fullPath] = "Unknown key '{$inputKey}' at path '{$fullPath}' is not allowed in strict mode";
             }
+        }
+    }
+
+    /**
+     * Returns the top-level input key a property path reads from (e.g. "address" for "address.city").
+     * Only the root is checked in strict mode; keys nested under it are not validated.
+     * Invalid path syntax yields the raw path - the error is reported when the value is resolved.
+     */
+    private function getPathRootKey(string $path): string
+    {
+        try {
+            return (string) PropertyPathResolver::getRootKey($path);
+        } catch (InvalidArgumentException) {
+            return $path;
         }
     }
 
