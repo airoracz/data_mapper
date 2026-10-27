@@ -9,11 +9,9 @@ use Attribute;
 #[Attribute(Attribute::TARGET_PROPERTY | Attribute::TARGET_PARAMETER)]
 class RoundNumberFilter implements FilterInterface
 {
+    /** @var 'half_up'|'half_down'|'half_even'|'half_odd' */
     public readonly string $mode;
 
-    /**
-     * @param 'half_up'|'half_down'|'half_even'|'half_odd' $mode
-     */
     public function __construct(
         public readonly int $precision = 0,
         string $mode = 'half_up'

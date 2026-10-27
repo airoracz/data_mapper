@@ -12,11 +12,9 @@ use DateTime;
 #[Attribute(Attribute::TARGET_PROPERTY | Attribute::TARGET_PARAMETER)]
 class TruncateDateTimeFilter implements FilterInterface
 {
+    /** @var 'minute'|'hour'|'day'|'month'|'year' */
     public readonly string $unit;
 
-    /**
-     * @param 'minute'|'hour'|'day'|'month'|'year' $unit
-     */
     public function __construct(string $unit)
     {
         if (!in_array($unit, ['minute', 'hour', 'day', 'month', 'year'], true)) {

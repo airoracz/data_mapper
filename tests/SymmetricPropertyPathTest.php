@@ -88,6 +88,16 @@ class SymmetricPropertyPathTest extends TestCase
         $this->assertSame(['address' => ['city' => 'Prague', 'zip' => '11000'], 'tags' => [1 => 'b']], $data);
     }
 
+    public function testResolverSetRejectsPathStartingWithIndex(): void
+    {
+        $data = [];
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('must start with a property name');
+
+        PropertyPathResolver::set($data, '[0].name', 'x');
+    }
+
     private function createAddressDto(): SymmetricAddressDto
     {
         $dto = new SymmetricAddressDto();

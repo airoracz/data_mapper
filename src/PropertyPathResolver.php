@@ -168,15 +168,24 @@ class PropertyPathResolver
      * Writes a value into the data array at the given path, creating intermediate arrays as needed.
      * Inverse of resolve(): resolve(set($data, $path, $v), $path) === $v.
      *
-     * @param array<int|string, mixed> $data Target data (modified in place)
+     * The path must start with a property name, so only string keys are added at the top level.
+     *
+     * @template TKey of array-key
+     * @param array<TKey, mixed> $data Target data (modified in place)
+     * @param-out array<TKey|string, mixed> $data
      * @param string $path Property path (e.g., "address.city", "addresses[0].street")
-     * @throws InvalidArgumentException If path syntax is invalid
+     * @throws InvalidArgumentException If path syntax is invalid or the path starts with an array index
      */
     public static function set(array &$data, string $path, mixed $value): void
     {
+        $segments = self::parsePath($path);
+        if ($segments[0]['type'] !== 'property') {
+            throw new InvalidArgumentException("Invalid path for writing: '{$path}' must start with a property name");
+        }
+
         $current = &$data;
 
-        foreach (self::parsePath($path) as $segment) {
+        foreach ($segments as $segment) {
             $key = $segment['type'] === 'index' ? $segment['index'] ?? 0 : $segment['key'] ?? '';
             if (!is_array($current)) {
                 $current = [];

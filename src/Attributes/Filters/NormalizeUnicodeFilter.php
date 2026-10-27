@@ -9,9 +9,9 @@ use Attribute;
 #[Attribute(Attribute::TARGET_PROPERTY | Attribute::TARGET_PARAMETER)]
 class NormalizeUnicodeFilter implements FilterInterface
 {
+    /** @var 'NFC'|'NFD'|'NFKC'|'NFKD' */
     public readonly string $form;
 
-    /** @param 'NFC'|'NFD'|'NFKC'|'NFKD' $form */
     public function __construct(string $form = 'NFC')
     {
         if (!in_array($form, ['NFC', 'NFD', 'NFKC', 'NFKD'], true)) {
