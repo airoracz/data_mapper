@@ -18,6 +18,10 @@ class TypeResolver
 
     private bool $skipNullValues = false;
 
+    private bool $publicPropertiesOnly = false;
+
+    private bool $symmetricPropertyPaths = false;
+
     /** @var array<string, mixed>|null */
     private ?array $rootPayload = null;
 
@@ -38,8 +42,51 @@ class TypeResolver
         if ($this->sharedDenormalizer === null) {
             $this->sharedDenormalizer = new \Pocta\DataMapper\Denormalizer\Denormalizer($this);
             $this->sharedDenormalizer->setStrictMode($this->strictMode);
+            $this->sharedDenormalizer->setPublicPropertiesOnly($this->publicPropertiesOnly);
         }
         return $this->sharedDenormalizer;
+    }
+
+    /**
+     * Set public-only mapping for nested (de)normalizations.
+     */
+    public function setPublicPropertiesOnly(bool $publicPropertiesOnly): void
+    {
+        $this->publicPropertiesOnly = $publicPropertiesOnly;
+        $this->sharedDenormalizer?->setPublicPropertiesOnly($publicPropertiesOnly);
+    }
+
+    /**
+     * Get current public-only mapping setting.
+     */
+    public function isPublicPropertiesOnly(): bool
+    {
+        return $this->publicPropertiesOnly;
+    }
+
+    /**
+     * Set symmetric property paths for nested normalizations.
+     */
+    public function setSymmetricPropertyPaths(bool $symmetricPropertyPaths): void
+    {
+        $this->symmetricPropertyPaths = $symmetricPropertyPaths;
+    }
+
+    /**
+     * Get current symmetric property paths setting.
+     */
+    public function isSymmetricPropertyPaths(): bool
+    {
+        return $this->symmetricPropertyPaths;
+    }
+
+    /**
+     * Applies the current nested-normalization options to a normalizer owned by a type handler.
+     */
+    public function configureNormalizer(\Pocta\DataMapper\Normalizer\Normalizer $normalizer): void
+    {
+        $normalizer->setPublicPropertiesOnly($this->publicPropertiesOnly);
+        $normalizer->setSymmetricPropertyPaths($this->symmetricPropertyPaths);
     }
 
     /**

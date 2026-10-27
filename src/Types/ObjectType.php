@@ -121,6 +121,8 @@ class ObjectType implements TypeInterface
             );
         }
 
+        $this->typeResolver?->configureNormalizer($this->normalizer);
+
         return $this->normalizer->normalize($value);
     }
 }

@@ -167,6 +167,10 @@ class ArrayType implements TypeInterface
             return $value;
         }
 
+        if ($this->normalizer !== null) {
+            $this->typeResolver?->configureNormalizer($this->normalizer);
+        }
+
         $result = [];
 
         // Normalize each element
