@@ -84,6 +84,27 @@ class IgnoreAttributeTest extends TestCase
         $this->assertSame('secret', $dto->password);
     }
 
+    public function testConstructorDoesNotHydrateNonPromotedParameterOfOutputOnlyProperty(): void
+    {
+        $dto = (new Mapper())->fromArray(['name' => 'John', 'role' => 'admin'], IgnoreAssignedInCtorDto::class);
+
+        $this->assertSame('user', $dto->role);
+    }
+
+    public function testConstructorDoesNotHydrateNonPromotedParameterOfIgnoredProperty(): void
+    {
+        $dto = (new Mapper())->fromArray(['name' => 'John', 'internal' => 'HACKED'], IgnoreAssignedInCtorDto::class);
+
+        $this->assertSame('kept', $dto->internal);
+    }
+
+    public function testConstructorHydratesNonPromotedParameterWithoutMatchingProperty(): void
+    {
+        $dto = (new Mapper())->fromArray(['name' => 'John'], IgnoreAssignedInCtorDto::class);
+
+        $this->assertSame('John', $dto->name);
+    }
+
     public function testRequiredIgnoredPromotedParameterIsConfigurationError(): void
     {
         $this->expectException(LogicException::class);
@@ -171,5 +192,23 @@ class IgnoreRequiredCtorDto
         #[Ignore]
         public int $id,
     ) {
+    }
+}
+
+class IgnoreAssignedInCtorDto
+{
+    public string $name;
+
+    #[OutputOnly]
+    public string $role;
+
+    #[Ignore]
+    public string $internal;
+
+    public function __construct(string $name, string $role = 'user', string $internal = 'kept')
+    {
+        $this->name = $name;
+        $this->role = $role;
+        $this->internal = $internal;
     }
 }

@@ -49,8 +49,11 @@ class PropertyVisibilityResolver
 
     /**
      * Whether the constructor parameter is hydrated from input.
-     * Non-promoted parameters are subject only to #[Ignore]/#[OutputOnly] - they are
-     * the constructor's explicit API, not a property backdoor.
+     *
+     * #[Ignore]/#[OutputOnly] on the parameter or on the same-named property exclude it -
+     * otherwise a plain parameter assigned to that property in the constructor would
+     * bypass the attribute. Visibility rules apply only to promoted parameters; plain
+     * parameters are the constructor's explicit API.
      */
     public static function isParameterDenormalizable(ReflectionParameter $parameter, bool $publicPropertiesOnly): bool
     {
@@ -58,12 +61,20 @@ class PropertyVisibilityResolver
             return false;
         }
 
+        $class = $parameter->getDeclaringClass();
+        $property = $class !== null && $class->hasProperty($parameter->getName())
+            ? $class->getProperty($parameter->getName())
+            : null;
+
+        if ($property !== null && self::hasAnyAttribute($property, [Ignore::class, OutputOnly::class])) {
+            return false;
+        }
+
         if (!$publicPropertiesOnly || !$parameter->isPromoted()) {
             return true;
         }
 
-        $class = $parameter->getDeclaringClass();
-        if ($class !== null && $class->getProperty($parameter->getName())->isPublic()) {
+        if ($property !== null && $property->isPublic()) {
             return true;
         }
 
