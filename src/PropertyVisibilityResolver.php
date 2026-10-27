@@ -24,9 +24,22 @@ use ReflectionProperty;
 class PropertyVisibilityResolver
 {
     /**
+     * Memoized decisions - they depend only on class declarations, which do not change at runtime.
+     *
+     * @var array<string, bool>
+     */
+    private static array $cache = [];
+    /**
      * Whether the property is written to output (normalization).
      */
     public static function isPropertyNormalizable(ReflectionProperty $property, bool $publicPropertiesOnly): bool
+    {
+        $key = 'normalize:' . (int) $publicPropertiesOnly . ':' . self::propertyKey($property);
+
+        return self::$cache[$key] ??= self::computeIsPropertyNormalizable($property, $publicPropertiesOnly);
+    }
+
+    private static function computeIsPropertyNormalizable(ReflectionProperty $property, bool $publicPropertiesOnly): bool
     {
         if (self::hasAnyAttribute($property, [Ignore::class, InputOnly::class])) {
             return false;
@@ -39,6 +52,13 @@ class PropertyVisibilityResolver
      * Whether the property is hydrated from input (denormalization, merge).
      */
     public static function isPropertyDenormalizable(ReflectionProperty $property, bool $publicPropertiesOnly): bool
+    {
+        $key = 'denormalize:' . (int) $publicPropertiesOnly . ':' . self::propertyKey($property);
+
+        return self::$cache[$key] ??= self::computeIsPropertyDenormalizable($property, $publicPropertiesOnly);
+    }
+
+    private static function computeIsPropertyDenormalizable(ReflectionProperty $property, bool $publicPropertiesOnly): bool
     {
         if (self::hasAnyAttribute($property, [Ignore::class, OutputOnly::class])) {
             return false;
@@ -53,6 +73,13 @@ class PropertyVisibilityResolver
      * their values are accepted and discarded, never hydrated.
      */
     public static function isPropertyKnownForInput(ReflectionProperty $property, bool $publicPropertiesOnly): bool
+    {
+        $key = 'known:' . (int) $publicPropertiesOnly . ':' . self::propertyKey($property);
+
+        return self::$cache[$key] ??= self::computeIsPropertyKnownForInput($property, $publicPropertiesOnly);
+    }
+
+    private static function computeIsPropertyKnownForInput(ReflectionProperty $property, bool $publicPropertiesOnly): bool
     {
         if (self::isPropertyDenormalizable($property, $publicPropertiesOnly)) {
             return true;
@@ -71,6 +98,13 @@ class PropertyVisibilityResolver
      * parameters are the constructor's explicit API.
      */
     public static function isParameterDenormalizable(ReflectionParameter $parameter, bool $publicPropertiesOnly): bool
+    {
+        $key = 'parameter:' . (int) $publicPropertiesOnly . ':' . self::parameterKey($parameter);
+
+        return self::$cache[$key] ??= self::computeIsParameterDenormalizable($parameter, $publicPropertiesOnly);
+    }
+
+    private static function computeIsParameterDenormalizable(ReflectionParameter $parameter, bool $publicPropertiesOnly): bool
     {
         if (self::hasAnyAttribute($parameter, [Ignore::class, OutputOnly::class])) {
             return false;
@@ -94,6 +128,17 @@ class PropertyVisibilityResolver
         }
 
         return self::hasAnyAttribute($parameter, [MapProperty::class, MapDateTimeProperty::class]);
+    }
+
+    private static function propertyKey(ReflectionProperty $property): string
+    {
+        return $property->class . '::$' . $property->name;
+    }
+
+    private static function parameterKey(ReflectionParameter $parameter): string
+    {
+        return ($parameter->getDeclaringClass()?->getName() ?? '') . '::'
+            . $parameter->getDeclaringFunction()->getName() . '($' . $parameter->getName() . ')';
     }
 
     private static function isPropertyVisible(ReflectionProperty $property, bool $publicPropertiesOnly, bool $forWriting): bool
