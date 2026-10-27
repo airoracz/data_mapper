@@ -78,6 +78,7 @@ class Mapper
         $this->strictMode = $options->strictMode;
         $this->throwOnMissingData = $options->throwOnMissingData;
         $this->publicPropertiesOnly = $options->publicPropertiesOnly;
+        // MapperOptions already rejects values < 1; max() narrows the type to int<1, max> for json_decode()
         $this->jsonDepth = max(1, $options->jsonDepth);
         $this->debugger = $debugger;
         $this->profiler = $profiler;
@@ -678,11 +679,12 @@ class Mapper
         try {
             $results = [];
             foreach ($collection as $index => $data) {
-                if (!is_array($data) || ($data !== [] && array_is_list($data))) {
+                // Lists are rejected by fromArray(); here only guard against a TypeError
+                if (!is_array($data)) {
                     throw new InvalidInputException(sprintf(
                         'Collection element [%s] must be an associative array (object), %s given',
                         $index,
-                        is_array($data) ? 'list' : get_debug_type($data)
+                        get_debug_type($data)
                     ));
                 }
                 $results[] = $this->fromArray($data, $className);
