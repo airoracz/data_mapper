@@ -8,6 +8,8 @@ use InvalidArgumentException;
 use JsonException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Pocta\DataMapper\Events\DenormalizationErrorEvent;
+use Pocta\DataMapper\Events\PreDenormalizeEvent;
 use Pocta\DataMapper\Exceptions\InvalidInputException;
 use Pocta\DataMapper\Mapper;
 use Pocta\DataMapper\MapperOptions;
@@ -55,6 +57,39 @@ class InvalidJsonInputTest extends TestCase
         $this->expectException(InvalidInputException::class);
 
         (new Mapper())->fromArray([1, 2], InvalidJsonInputDto::class);
+    }
+
+    public function testPreDenormalizeListenerCanTransformListInput(): void
+    {
+        $mapper = new Mapper();
+        $mapper->addEventListener(PreDenormalizeEvent::class, function (PreDenormalizeEvent $event): void {
+            if (array_is_list($event->data)) {
+                $event->setData(['name' => (string) count($event->data)]);
+            }
+        });
+
+        $dto = $mapper->fromArray([1, 2], InvalidJsonInputDto::class);
+
+        $this->assertSame('2', $dto->name);
+    }
+
+    public function testListInputDispatchesDenormalizationErrorEvent(): void
+    {
+        $mapper = new Mapper();
+        $caught = null;
+        $mapper->addEventListener(
+            DenormalizationErrorEvent::class,
+            function (DenormalizationErrorEvent $event) use (&$caught): void {
+                $caught = $event->exception;
+            }
+        );
+
+        try {
+            $mapper->fromArray([1, 2], InvalidJsonInputDto::class);
+        } catch (InvalidInputException) {
+        }
+
+        $this->assertInstanceOf(InvalidInputException::class, $caught);
     }
 
     public function testFromArrayAcceptsEmptyArray(): void

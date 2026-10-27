@@ -11,7 +11,7 @@ namespace Pocta\DataMapper\Events;
 class PreDenormalizeEvent extends AbstractEvent
 {
     /**
-     * @param array<string, mixed> $data Input data to be denormalized
+     * @param array<mixed> $data Input data to be denormalized (untrusted - may be a list)
      * @param class-string $className Target class name
      */
     public function __construct(
@@ -23,7 +23,7 @@ class PreDenormalizeEvent extends AbstractEvent
     /**
      * Modify input data
      *
-     * @param array<string, mixed> $data
+     * @param array<mixed> $data
      */
     public function setData(array $data): void
     {

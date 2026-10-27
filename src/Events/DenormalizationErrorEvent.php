@@ -14,7 +14,7 @@ class DenormalizationErrorEvent extends AbstractEvent
 {
     /**
      * @param Throwable $exception The exception that occurred
-     * @param array<string, mixed> $data Input data that caused the error
+     * @param array<mixed> $data Input data that caused the error
      * @param class-string $className Target class name
      * @param object|null $partialObject Partially created object (if any)
      */

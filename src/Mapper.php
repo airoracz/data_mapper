@@ -286,22 +286,23 @@ class Mapper
      */
     public function fromArray(array $data, string $className): object
     {
-        if ($data !== [] && array_is_list($data)) {
-            throw new InvalidInputException('Data must be an associative array (object), list given');
-        }
-        /** @var array<string, mixed> $data */
-
         $this->profiler?->start('fromArray');
         $this->debugger?->logOperation('fromArray', $data, $className);
 
-        // Dispatch PreDenormalize event
+        // Dispatch PreDenormalize event (listeners may reshape the input, e.g. wrap a list)
         $preEvent = new PreDenormalizeEvent($data, $className);
         $this->eventDispatcher->dispatch($preEvent);
         $data = $preEvent->data;
 
-        // Set root payload in TypeResolver for nested denormalizations
-        $this->typeResolver->setRootPayload($data);
         try {
+            if ($data !== [] && array_is_list($data)) {
+                throw new InvalidInputException('Data must be an associative array (object), list given');
+            }
+            /** @var array<string, mixed> $data */
+
+            // Set root payload in TypeResolver for nested denormalizations
+            $this->typeResolver->setRootPayload($data);
+
             $this->profiler?->start('denormalize');
 
             /** @var T $object */
