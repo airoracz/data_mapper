@@ -105,6 +105,14 @@ class IgnoreAttributeTest extends TestCase
         $this->assertSame('John', $dto->name);
     }
 
+    public function testIgnoredVariadicParameterReceivesNoArguments(): void
+    {
+        $dto = (new Mapper())->fromArray(['name' => 'John', 'tags' => ['a']], IgnoreVariadicDto::class);
+
+        $this->assertSame('John', $dto->name);
+        $this->assertSame([], $dto->tags);
+    }
+
     public function testRequiredIgnoredPromotedParameterIsConfigurationError(): void
     {
         $this->expectException(LogicException::class);
@@ -259,5 +267,19 @@ class IgnoreAssignedInCtorDto
         $this->name = $name;
         $this->role = $role;
         $this->internal = $internal;
+    }
+}
+
+class IgnoreVariadicDto
+{
+    /** @var array<int|string, string> */
+    public array $tags;
+
+    public function __construct(
+        public string $name,
+        #[Ignore]
+        string ...$tags,
+    ) {
+        $this->tags = $tags;
     }
 }

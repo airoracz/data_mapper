@@ -266,6 +266,12 @@ class Denormalizer
         $constructorArgs = [];
 
         foreach ($constructor->getParameters() as $parameter) {
+            // A variadic excluded from input receives no arguments (null would hit its type)
+            if ($parameter->isVariadic()
+                && !PropertyVisibilityResolver::isParameterDenormalizable($parameter, $this->publicPropertiesOnly)
+            ) {
+                break;
+            }
             $value = $this->getParameterValue($parameter, $data);
             $constructorArgs[] = $value;
         }
