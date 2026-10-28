@@ -34,7 +34,7 @@ class ToIntFilter implements FilterInterface
             }
 
             // Remove thousand separators and normalize comma decimal
-            $normalized = str_replace([' ', '\u{00A0}'], '', $trimmed);
+            $normalized = str_replace([' ', "\u{00A0}"], '', $trimmed);
             $normalized = str_replace(',', '.', $normalized);
             if (is_numeric($normalized)) {
                 return (int) ((float) $normalized);

@@ -33,7 +33,7 @@ class ToFloatFilter implements FilterInterface
                 return $value; // leave empty string as-is; combine with ToNull if desired
             }
             // Basic normalization for commas as decimal separators
-            $normalized = str_replace([' ', '\u{00A0}'], '', $trimmed);
+            $normalized = str_replace([' ', "\u{00A0}"], '', $trimmed);
             $normalized = str_replace(',', '.', $normalized);
             if (is_numeric($normalized)) {
                 return (float) $normalized;
