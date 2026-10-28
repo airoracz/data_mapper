@@ -818,39 +818,11 @@ class Mapper
             fwrite($stream, $csv);
             rewind($stream);
 
-            $data = [];
-            while (($row = fgetcsv($stream, 0, $delimiter, $enclosure, $escape)) !== false) {
-                // Skip empty rows
-                $hasContent = false;
-                foreach ($row as $cell) {
-                    if ($cell !== null && $cell !== '') {
-                        $hasContent = true;
-                        break;
-                    }
-                }
-                if ($hasContent) {
-                    $data[] = $row;
-                }
+            try {
+                return $this->mapCsvStream($stream, $className, $delimiter, $enclosure, $escape, $hasHeader);
+            } finally {
+                fclose($stream);
             }
-            fclose($stream);
-
-            if (empty($data)) {
-                return [];
-            }
-
-            $headers = null;
-            if ($hasHeader) {
-                $headers = array_shift($data);
-            }
-
-            // Convert rows to associative arrays
-            $result = [];
-            foreach ($data as $row) {
-                $rowData = $this->csvRowToArray($row, $headers, $className);
-                $result[] = $this->fromArray($rowData, $className);
-            }
-
-            return $result;
         } finally {
             $this->profiler?->stop('fromCsv');
         }
@@ -898,30 +870,11 @@ class Mapper
                 throw new \InvalidArgumentException("Failed to open CSV file: {$filePath}");
             }
 
-            $headers = null;
-            if ($hasHeader) {
-                $headers = fgetcsv($handle, 0, $delimiter, $enclosure, $escape);
-                if ($headers === false) {
-                    fclose($handle);
-                    return [];
-                }
+            try {
+                return $this->mapCsvStream($handle, $className, $delimiter, $enclosure, $escape, $hasHeader);
+            } finally {
+                fclose($handle);
             }
-
-            $result = [];
-            while (($row = fgetcsv($handle, 0, $delimiter, $enclosure, $escape)) !== false) {
-                // Skip empty rows
-                if (empty(array_filter($row, function ($cell) {
-                    return $cell !== null && $cell !== '';
-                }))) {
-                    continue;
-                }
-
-                $rowData = $this->csvRowToArray($row, $headers, $className);
-                $result[] = $this->fromArray($rowData, $className);
-            }
-
-            fclose($handle);
-            return $result;
         } finally {
             $this->profiler?->stop('fromCsvFile');
         }
@@ -997,6 +950,60 @@ class Mapper
             $this->normalizer->setSymmetricPropertyPaths($symmetricPropertyPaths);
             $this->profiler?->stop('toCsv');
         }
+    }
+
+    /**
+     * Maps CSV rows read from a stream (shared by fromCsv() and fromCsvFile()).
+     * Empty rows are skipped - also before the header row.
+     *
+     * @template T of object
+     *
+     * @param resource $stream
+     * @param class-string<T> $className
+     *
+     * @return array<int, T>
+     */
+    private function mapCsvStream(
+        $stream,
+        string $className,
+        string $delimiter,
+        string $enclosure,
+        string $escape,
+        bool $hasHeader
+    ): array {
+        $headers = null;
+        $headerPending = $hasHeader;
+        $result = [];
+
+        while (($row = fgetcsv($stream, 0, $delimiter, $enclosure, $escape)) !== false) {
+            if (!$this->csvRowHasContent($row)) {
+                continue;
+            }
+
+            if ($headerPending) {
+                $headers = $row;
+                $headerPending = false;
+                continue;
+            }
+
+            $result[] = $this->fromArray($this->csvRowToArray($row, $headers, $className), $className);
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<int, string|null> $row
+     */
+    private function csvRowHasContent(array $row): bool
+    {
+        foreach ($row as $cell) {
+            if ($cell !== null && $cell !== '') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
