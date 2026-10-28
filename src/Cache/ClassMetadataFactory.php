@@ -4,13 +4,11 @@ declare(strict_types=1);
 
 namespace Pocta\DataMapper\Cache;
 
-use Pocta\DataMapper\Attributes\MapProperty;
+use Pocta\DataMapper\Attributes\MappingAttributes;
 use Pocta\DataMapper\Attributes\MapFrom;
-use Pocta\DataMapper\Attributes\MapDateTimeProperty;
 use ReflectionClass;
 use ReflectionParameter;
 use ReflectionProperty;
-use ReflectionNamedType;
 
 /**
  * Factory for building ClassMetadata from reflection
@@ -117,11 +115,9 @@ class ClassMetadataFactory
      */
     private function buildPropertyMetadata(ReflectionProperty $property): PropertyMetadata
     {
-        $dateTimeAttrs = $property->getAttributes(MapDateTimeProperty::class);
-        $propertyAttrs = $property->getAttributes(MapProperty::class);
-
-        $jsonKey = $this->getJsonKey($property->getName(), $dateTimeAttrs, $propertyAttrs);
-        $typeName = $this->getTypeName($property->getType(), $dateTimeAttrs, $propertyAttrs);
+        $mapping = MappingAttributes::of($property);
+        $jsonKey = $mapping->jsonKey();
+        $typeName = $mapping->typeName();
         $isNullable = $property->getType()?->allowsNull() ?? true;
 
         // Check if promoted (exists in constructor parameters)
@@ -133,10 +129,10 @@ class ClassMetadataFactory
             $attributes[] = $attr->newInstance();
         }
 
-        $format = $this->getFormat($dateTimeAttrs);
-        $timezone = $this->getTimezone($dateTimeAttrs);
-        $arrayOf = $this->getArrayOf($dateTimeAttrs, $propertyAttrs);
-        $classType = $this->getClassType($propertyAttrs);
+        $format = $mapping->format();
+        $timezone = $mapping->timezone();
+        $arrayOf = $mapping->arrayOf();
+        $classType = $mapping->classType();
         $mapFrom = $this->getMapFrom($property);
 
         return new PropertyMetadata(
@@ -159,11 +155,9 @@ class ClassMetadataFactory
      */
     private function buildParameterMetadata(ReflectionParameter $parameter): ParameterMetadata
     {
-        $dateTimeAttrs = $parameter->getAttributes(MapDateTimeProperty::class);
-        $propertyAttrs = $parameter->getAttributes(MapProperty::class);
-
-        $jsonKey = $this->getJsonKey($parameter->getName(), $dateTimeAttrs, $propertyAttrs);
-        $typeName = $this->getTypeName($parameter->getType(), $dateTimeAttrs, $propertyAttrs);
+        $mapping = MappingAttributes::of($parameter);
+        $jsonKey = $mapping->jsonKey();
+        $typeName = $mapping->typeName();
         $isNullable = $parameter->allowsNull();
         $hasDefaultValue = $parameter->isDefaultValueAvailable();
         $defaultValue = $hasDefaultValue ? $parameter->getDefaultValue() : null;
@@ -174,10 +168,10 @@ class ClassMetadataFactory
             $attributes[] = $attr->newInstance();
         }
 
-        $format = $this->getFormat($dateTimeAttrs);
-        $timezone = $this->getTimezone($dateTimeAttrs);
-        $arrayOf = $this->getArrayOf($dateTimeAttrs, $propertyAttrs);
-        $classType = $this->getClassType($propertyAttrs);
+        $format = $mapping->format();
+        $timezone = $mapping->timezone();
+        $arrayOf = $mapping->arrayOf();
+        $classType = $mapping->classType();
         $mapFrom = $this->getMapFromParam($parameter);
 
         return new ParameterMetadata(
@@ -194,119 +188,6 @@ class ClassMetadataFactory
             $classType,
             $mapFrom
         );
-    }
-
-    /**
-     * @param array<\ReflectionAttribute<MapDateTimeProperty>> $dateTimeAttrs
-     * @param array<\ReflectionAttribute<MapProperty>> $propertyAttrs
-     */
-    private function getJsonKey(string $defaultName, array $dateTimeAttrs, array $propertyAttrs): string
-    {
-        if (!empty($dateTimeAttrs)) {
-            $attr = $dateTimeAttrs[0]->newInstance();
-            return $attr->name ?? $defaultName;
-        }
-        if (!empty($propertyAttrs)) {
-            $attr = $propertyAttrs[0]->newInstance();
-            return $attr->name ?? $defaultName;
-        }
-        return $defaultName;
-    }
-
-    /**
-     * @param array<\ReflectionAttribute<MapDateTimeProperty>> $dateTimeAttrs
-     * @param array<\ReflectionAttribute<MapProperty>> $propertyAttrs
-     */
-    private function getTypeName(
-        ?\ReflectionType $type,
-        array $dateTimeAttrs,
-        array $propertyAttrs
-    ): string {
-        if (!empty($dateTimeAttrs)) {
-            $attr = $dateTimeAttrs[0]->newInstance();
-            if ($attr->type !== null) {
-                return $attr->type->value;
-            }
-        }
-        if (!empty($propertyAttrs)) {
-            $attr = $propertyAttrs[0]->newInstance();
-            if ($attr->type !== null) {
-                return $attr->type->value;
-            }
-        }
-        if ($type instanceof ReflectionNamedType) {
-            return $type->getName();
-        }
-        return 'string';
-    }
-
-    /**
-     * @param array<\ReflectionAttribute<MapDateTimeProperty>> $dateTimeAttrs
-     */
-    private function getFormat(array $dateTimeAttrs): ?string
-    {
-        if (empty($dateTimeAttrs)) {
-            return null;
-        }
-        $attr = $dateTimeAttrs[0]->newInstance();
-        return $attr->format;
-    }
-
-    /**
-     * @param array<\ReflectionAttribute<MapDateTimeProperty>> $dateTimeAttrs
-     */
-    private function getTimezone(array $dateTimeAttrs): ?string
-    {
-        if (empty($dateTimeAttrs)) {
-            return null;
-        }
-        $attr = $dateTimeAttrs[0]->newInstance();
-        return $attr->timezone;
-    }
-
-    /**
-     * @param array<\ReflectionAttribute<MapDateTimeProperty>> $dateTimeAttrs
-     * @param array<\ReflectionAttribute<MapProperty>> $propertyAttrs
-     * @return class-string|string|null
-     */
-    private function getArrayOf(array $dateTimeAttrs, array $propertyAttrs): ?string
-    {
-        if (!empty($dateTimeAttrs)) {
-            $attr = $dateTimeAttrs[0]->newInstance();
-            // Convert PropertyType or ArrayElementType enum to string value if needed
-            if ($attr->arrayOf instanceof \Pocta\DataMapper\Attributes\PropertyType) {
-                return $attr->arrayOf->value;
-            }
-            if ($attr->arrayOf instanceof \Pocta\DataMapper\Attributes\ArrayElementType) {
-                return $attr->arrayOf->value;
-            }
-            return $attr->arrayOf;
-        }
-        if (!empty($propertyAttrs)) {
-            $attr = $propertyAttrs[0]->newInstance();
-            // Convert PropertyType or ArrayElementType enum to string value if needed
-            if ($attr->arrayOf instanceof \Pocta\DataMapper\Attributes\PropertyType) {
-                return $attr->arrayOf->value;
-            }
-            if ($attr->arrayOf instanceof \Pocta\DataMapper\Attributes\ArrayElementType) {
-                return $attr->arrayOf->value;
-            }
-            return $attr->arrayOf;
-        }
-        return null;
-    }
-
-    /**
-     * @param array<\ReflectionAttribute<MapProperty>> $propertyAttrs
-     * @return class-string|null
-     */
-    private function getClassType(array $propertyAttrs): ?string
-    {
-        if (empty($propertyAttrs)) {
-            return null;
-        }
-        $attr = $propertyAttrs[0]->newInstance();
-        return $attr->classType;
     }
 
     /**
