@@ -20,6 +20,14 @@ class ClassMetadataFactory
 {
     private CacheInterface $cache;
 
+    /**
+     * In-process memo in front of the cache backend - a file or Redis backend would otherwise be
+     * read (and unserialized) on every call, i.e. per object in fromObject() and per CSV row.
+     *
+     * @var array<string, ClassMetadata>
+     */
+    private array $memo = [];
+
     public function __construct(?CacheInterface $cache = null)
     {
         $this->cache = $cache ?? new ArrayCache();
@@ -34,12 +42,16 @@ class ClassMetadataFactory
      */
     public function getMetadata(string $className): ClassMetadata
     {
+        if (isset($this->memo[$className])) {
+            return $this->memo[$className];
+        }
+
         $cacheKey = 'class_metadata:' . $className;
 
         // Try to get from cache
         $cached = $this->cache->get($cacheKey);
         if ($cached instanceof ClassMetadata) {
-            return $cached;
+            return $this->memo[$className] = $cached;
         }
 
         // Build from reflection
@@ -48,7 +60,7 @@ class ClassMetadataFactory
         // Store in cache
         $this->cache->set($cacheKey, $metadata);
 
-        return $metadata;
+        return $this->memo[$className] = $metadata;
     }
 
     /**
@@ -59,8 +71,10 @@ class ClassMetadataFactory
     public function clearCache(?string $className = null): void
     {
         if ($className === null) {
+            $this->memo = [];
             $this->cache->clear();
         } else {
+            unset($this->memo[$className]);
             $this->cache->delete('class_metadata:' . $className);
         }
     }
