@@ -20,14 +20,20 @@ class Debugger
     private bool $enabled = true;
     private bool $debugMode = false;
 
-    /** @var resource|false */
-    private $outputStream;
+    /** @var resource|false|null Opened lazily on first debug write (null = not opened yet) */
+    private $outputStream = null;
 
-    public function __construct(bool $enabled = true, bool $debugMode = false)
-    {
+    /**
+     * @param int|null $maxLogEntries Keep only the newest N log entries (null = unlimited). Set it in
+     *                                long-running processes, where an unlimited log grows forever.
+     */
+    public function __construct(
+        bool $enabled = true,
+        bool $debugMode = false,
+        private readonly ?int $maxLogEntries = null,
+    ) {
         $this->enabled = $enabled;
         $this->debugMode = $debugMode;
-        $this->outputStream = fopen('php://stderr', 'w');
     }
 
     /**
@@ -97,9 +103,9 @@ class Debugger
             $logEntry['data'] = $data;
         }
 
-        $this->logs[] = $logEntry;
+        $this->addLog($logEntry);
 
-        if ($this->debugMode && $this->outputStream) {
+        if ($this->debugMode && $this->getOutputStream()) {
             $this->writeDebug("Operation: {$operation}" . ($className ? " -> {$className}" : ""));
             if (is_array($data) || is_object($data)) {
                 $this->writeDebug("Data: " . print_r($data, true));
@@ -120,18 +126,18 @@ class Debugger
 
         $eventClass = get_class($event);
 
-        $this->logs[] = [
+        $this->addLog([
             'type' => 'event',
             'event' => $eventClass,
             'timestamp' => microtime(true),
-        ];
+        ]);
 
         if (!isset($this->eventCounts[$eventClass])) {
             $this->eventCounts[$eventClass] = 0;
         }
         $this->eventCounts[$eventClass]++;
 
-        if ($this->debugMode && $this->outputStream) {
+        if ($this->debugMode && $this->getOutputStream()) {
             $this->writeDebug("Event: {$eventClass}");
         }
     }
@@ -149,15 +155,15 @@ class Debugger
             return;
         }
 
-        $this->logs[] = [
+        $this->addLog([
             'type' => 'metadata',
             'className' => $className,
             'fromCache' => $fromCache,
             'propertyCount' => count($metadata),
             'timestamp' => microtime(true),
-        ];
+        ]);
 
-        if ($this->debugMode && $this->outputStream) {
+        if ($this->debugMode && $this->getOutputStream()) {
             $cacheStatus = $fromCache ? 'CACHE HIT' : 'CACHE MISS';
             $propertyCount = count($metadata);
             $this->writeDebug("Metadata [{$cacheStatus}]: {$className} ({$propertyCount} properties)");
@@ -176,14 +182,14 @@ class Debugger
             return;
         }
 
-        $this->logs[] = [
+        $this->addLog([
             'type' => 'cache',
             'operation' => $operation,
             'className' => $className,
             'timestamp' => microtime(true),
-        ];
+        ]);
 
-        if ($this->debugMode && $this->outputStream) {
+        if ($this->debugMode && $this->getOutputStream()) {
             $this->writeDebug("Cache {$operation}" . ($className ? ": {$className}" : ""));
         }
     }
@@ -265,8 +271,29 @@ class Debugger
      */
     private function writeDebug(string $message): void
     {
-        if ($this->outputStream) {
-            fwrite($this->outputStream, "[DEBUG] {$message}\n");
+        $stream = $this->getOutputStream();
+        if ($stream) {
+            fwrite($stream, "[DEBUG] {$message}\n");
+        }
+    }
+
+    /**
+     * @return resource|false
+     */
+    private function getOutputStream()
+    {
+        return $this->outputStream ??= fopen('php://stderr', 'w');
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     */
+    private function addLog(array $entry): void
+    {
+        $this->logs[] = $entry;
+
+        if ($this->maxLogEntries !== null && count($this->logs) > $this->maxLogEntries) {
+            $this->logs = array_slice($this->logs, -$this->maxLogEntries);
         }
     }
 }

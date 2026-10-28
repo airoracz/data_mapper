@@ -25,6 +25,9 @@ $mapper = new Mapper(
 $user = $mapper->fromArray($data, User::class);
 ```
 
+> **Long-running processes** (RoadRunner, Swoole, queue workers): the debugger keeps every log entry in memory
+> by default. Cap it with `new Debugger(maxLogEntries: 1000)` - only the newest entries are kept.
+
 ## Debugger - What It Logs and How to Get Data
 
 The debugger records **all important operations** during mapping:
