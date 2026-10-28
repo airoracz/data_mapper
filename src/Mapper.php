@@ -295,9 +295,12 @@ class Mapper
         // Dispatch PreDenormalize event (listeners may reshape the input, e.g. wrap a list).
         // Outside the main try on purpose: a failing listener does not dispatch DenormalizationErrorEvent.
         try {
-            $preEvent = new PreDenormalizeEvent($data, $className);
-            $this->eventDispatcher->dispatch($preEvent);
-            $data = $preEvent->data;
+            // Events are only created when someone listens - the result is the same without them
+            if ($this->eventDispatcher->hasListeners(PreDenormalizeEvent::class)) {
+                $preEvent = new PreDenormalizeEvent($data, $className);
+                $this->eventDispatcher->dispatch($preEvent);
+                $data = $preEvent->data;
+            }
         } catch (\Throwable $e) {
             $this->profiler?->stop('fromArray');
             throw $e;
@@ -321,10 +324,12 @@ class Mapper
             }
 
             // Dispatch PostDenormalize event
-            $postEvent = new PostDenormalizeEvent($object, $data, $className);
-            $this->eventDispatcher->dispatch($postEvent);
-            /** @var T $object */
-            $object = $postEvent->object;
+            if ($this->eventDispatcher->hasListeners(PostDenormalizeEvent::class)) {
+                $postEvent = new PostDenormalizeEvent($object, $data, $className);
+                $this->eventDispatcher->dispatch($postEvent);
+                /** @var T $object */
+                $object = $postEvent->object;
+            }
 
             // Auto-validation if enabled
             if ($this->autoValidate) {
@@ -332,16 +337,19 @@ class Mapper
                 try {
                     $errors = $this->validator->validate($object, throw: false);
 
-                    // Dispatch validation event
-                    $validationEvent = new ValidationEvent($object, $errors);
-                    $this->eventDispatcher->dispatch($validationEvent);
+                    // Dispatch validation event (listeners may change the errors)
+                    if ($this->eventDispatcher->hasListeners(ValidationEvent::class)) {
+                        $validationEvent = new ValidationEvent($object, $errors);
+                        $this->eventDispatcher->dispatch($validationEvent);
+                        $errors = $validationEvent->errors;
+                    }
                 } finally {
                     $this->profiler?->stop('validation');
                 }
 
                 // Throw if there are errors
-                if ($validationEvent->hasErrors()) {
-                    throw new \Pocta\DataMapper\Exceptions\ValidationException($validationEvent->errors);
+                if ($errors !== []) {
+                    throw new \Pocta\DataMapper\Exceptions\ValidationException($errors);
                 }
             }
 
@@ -692,9 +700,11 @@ class Mapper
 
         try {
             // Dispatch PreNormalize event
-            $preEvent = new PreNormalizeEvent($object);
-            $this->eventDispatcher->dispatch($preEvent);
-            $object = $preEvent->object;
+            if ($this->eventDispatcher->hasListeners(PreNormalizeEvent::class)) {
+                $preEvent = new PreNormalizeEvent($object);
+                $this->eventDispatcher->dispatch($preEvent);
+                $object = $preEvent->object;
+            }
 
             $this->profiler?->start('normalize');
             try {
@@ -704,10 +714,13 @@ class Mapper
             }
 
             // Dispatch PostNormalize event
-            $postEvent = new PostNormalizeEvent($data, $object);
-            $this->eventDispatcher->dispatch($postEvent);
+            if ($this->eventDispatcher->hasListeners(PostNormalizeEvent::class)) {
+                $postEvent = new PostNormalizeEvent($data, $object);
+                $this->eventDispatcher->dispatch($postEvent);
+                $data = $postEvent->data;
+            }
 
-            return $postEvent->data;
+            return $data;
         } finally {
             $this->profiler?->stop('toArray');
         }
