@@ -432,7 +432,7 @@ class Denormalizer
         if ($field['hasHydrator']) {
             $value = $this->invokeHydrator($this->getHydrator($parameter), $value, $path ?? $jsonKey);
         }
-        $value = $this->applyFilters($parameter, $value);
+        $value = $this->getFilterChain($parameter)->applyBeforeTyping($value, $appliedFilters);
 
         $fullPath = $this->buildFullFieldPath($path ?? $jsonKey);
         $typed = $this->denormalizeValue(
@@ -446,7 +446,7 @@ class Denormalizer
             $field['classType']
         );
         // Apply filters AFTER type denormalization
-        $typed = $this->applyFilters($parameter, $typed);
+        $typed = $this->getFilterChain($parameter)->applyAfterTyping($typed, $appliedFilters);
         return $typed;
     }
 
@@ -520,7 +520,7 @@ class Denormalizer
         if ($field['hasHydrator']) {
             $value = $this->invokeHydrator($this->getHydrator($property), $value, $path ?? $jsonKey);
         }
-        $value = $this->applyFilters($property, $value);
+        $value = $this->getFilterChain($property)->applyBeforeTyping($value, $appliedFilters);
         $isNullable = $this->isPropertyNullable($property);
 
         $fullPath = $this->buildFullFieldPath($path ?? $jsonKey);
@@ -536,7 +536,7 @@ class Denormalizer
             $field['classType']
         );
         // Apply filters AFTER type denormalization
-        $typedValue = $this->applyFilters($property, $typedValue);
+        $typedValue = $this->getFilterChain($property)->applyAfterTyping($typedValue, $appliedFilters);
 
         // Don't set the value if any error was added or changed during denormalization.
         // Value comparison (not just count) is required because the nested denormalize/
@@ -648,16 +648,15 @@ class Denormalizer
     }
 
     /**
-     * Applies filter attributes of the property/parameter, in declaration order.
-     * The chain is built on first use (all attributes are instantiated, as before); built-in filter
-     * instances are reused, user-defined filters are instantiated per apply (see FilterChain).
+     * Filter chain of the property/parameter, built on first use (all attributes are instantiated,
+     * as before); built-in filter instances are reused, user-defined filters are instantiated per
+     * apply. Filters run before type conversion; those without effect on the raw value run after it,
+     * so every filter takes effect once (see FilterChain::applyBeforeTyping()).
      */
-    private function applyFilters(ReflectionProperty|ReflectionParameter $reflector, mixed $value): mixed
+    private function getFilterChain(ReflectionProperty|ReflectionParameter $reflector): \Pocta\DataMapper\Attributes\Filters\FilterChain
     {
-        $id = spl_object_id($reflector);
-        $this->filterCache[$id] ??= \Pocta\DataMapper\Attributes\Filters\FilterChain::fromAttributes($reflector->getAttributes());
-
-        return $this->filterCache[$id]->apply($value);
+        return $this->filterCache[spl_object_id($reflector)]
+            ??= \Pocta\DataMapper\Attributes\Filters\FilterChain::fromAttributes($reflector->getAttributes());
     }
 
     private function getHydrator(ReflectionProperty|ReflectionParameter $reflector): \Pocta\DataMapper\Attributes\MapPropertyWithFunction

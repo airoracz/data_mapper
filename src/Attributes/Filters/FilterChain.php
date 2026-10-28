@@ -45,15 +45,70 @@ final class FilterChain
         return new self($filters);
     }
 
+    /**
+     * Applies all filters once (normalization).
+     */
     public function apply(mixed $value): mixed
     {
         foreach ($this->filters as $filter) {
-            $instance = $filter instanceof ReflectionAttribute ? $filter->newInstance() : $filter;
-            if ($instance instanceof FilterInterface) {
-                $value = $instance->apply($value);
+            $value = $this->instantiate($filter)->apply($value);
+        }
+
+        return $value;
+    }
+
+    /**
+     * First pass of denormalization, on the raw input value. Records the filters that changed
+     * the value - they have taken effect and must not run again after type conversion.
+     *
+     * @param list<int> $applied Indexes of filters that changed the value (output)
+     * @param-out list<int> $applied
+     */
+    public function applyBeforeTyping(mixed $value, ?array &$applied): mixed
+    {
+        $applied = [];
+        foreach ($this->filters as $index => $filter) {
+            $filtered = $this->instantiate($filter)->apply($value);
+            if ($filtered !== $value) {
+                $applied[] = $index;
+            }
+            $value = $filtered;
+        }
+
+        return $value;
+    }
+
+    /**
+     * Second pass of denormalization, on the typed value: only filters that had no effect on the
+     * raw input (e.g. a date filter on a date string) run, so every filter takes effect once.
+     *
+     * @param list<int> $applied Indexes returned by applyBeforeTyping()
+     */
+    public function applyAfterTyping(mixed $value, array $applied): mixed
+    {
+        foreach ($this->filters as $index => $filter) {
+            if (!in_array($index, $applied, true)) {
+                $value = $this->instantiate($filter)->apply($value);
             }
         }
 
         return $value;
+    }
+
+    /**
+     * @param FilterInterface|ReflectionAttribute<object> $filter
+     */
+    private function instantiate(FilterInterface|ReflectionAttribute $filter): FilterInterface
+    {
+        if ($filter instanceof FilterInterface) {
+            return $filter;
+        }
+
+        $instance = $filter->newInstance();
+        if (!$instance instanceof FilterInterface) {
+            throw new \LogicException(sprintf('Attribute "%s" is not a filter', $filter->getName()));
+        }
+
+        return $instance;
     }
 }

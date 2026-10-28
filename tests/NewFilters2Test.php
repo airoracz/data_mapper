@@ -411,22 +411,7 @@ class NewFilters2Test extends TestCase
         $this->assertStringNotContainsString('=', $data['encoded']);
     }
 
-    // ========== Base64DecodeFilter Tests ==========
-    // Note: Base64DecodeFilter is not suitable for denormalization as it would decode twice
-    // It's primarily meant for one-way decoding during specific workflows
-
-    public function testBase64DecodeFilterBasic(): void
-    {
-        // Skip - Base64DecodeFilter applies twice during denormalization
-        // Use case: decoding already-encoded data during normalization only
-        $this->markTestSkipped('Base64DecodeFilter is not suitable for double-application during denormalization');
-    }
-
-    public function testBase64DecodeFilterUrlSafe(): void
-    {
-        // Skip - same reason as above
-        $this->markTestSkipped('Base64DecodeFilter is not suitable for double-application during denormalization');
-    }
+    // Base64DecodeFilter on input: see FilterSingleApplicationTest
 
     public function testBase64DecodeFilterRoundTrip(): void
     {
