@@ -292,10 +292,16 @@ class Mapper
         $this->profiler?->start('fromArray');
         $this->debugger?->logOperation('fromArray', $data, $className);
 
-        // Dispatch PreDenormalize event (listeners may reshape the input, e.g. wrap a list)
-        $preEvent = new PreDenormalizeEvent($data, $className);
-        $this->eventDispatcher->dispatch($preEvent);
-        $data = $preEvent->data;
+        // Dispatch PreDenormalize event (listeners may reshape the input, e.g. wrap a list).
+        // Outside the main try on purpose: a failing listener does not dispatch DenormalizationErrorEvent.
+        try {
+            $preEvent = new PreDenormalizeEvent($data, $className);
+            $this->eventDispatcher->dispatch($preEvent);
+            $data = $preEvent->data;
+        } catch (\Throwable $e) {
+            $this->profiler?->stop('fromArray');
+            throw $e;
+        }
 
         try {
             if ($data !== [] && array_is_list($data)) {
@@ -307,11 +313,12 @@ class Mapper
             $this->typeResolver->setRootPayload($data);
 
             $this->profiler?->start('denormalize');
-
-            /** @var T $object */
-            $object = $this->denormalizer->denormalize($data, $className);
-
-            $this->profiler?->stop('denormalize');
+            try {
+                /** @var T $object */
+                $object = $this->denormalizer->denormalize($data, $className);
+            } finally {
+                $this->profiler?->stop('denormalize');
+            }
 
             // Dispatch PostDenormalize event
             $postEvent = new PostDenormalizeEvent($object, $data, $className);
@@ -322,14 +329,15 @@ class Mapper
             // Auto-validation if enabled
             if ($this->autoValidate) {
                 $this->profiler?->start('validation');
+                try {
+                    $errors = $this->validator->validate($object, throw: false);
 
-                $errors = $this->validator->validate($object, throw: false);
-
-                // Dispatch validation event
-                $validationEvent = new ValidationEvent($object, $errors);
-                $this->eventDispatcher->dispatch($validationEvent);
-
-                $this->profiler?->stop('validation');
+                    // Dispatch validation event
+                    $validationEvent = new ValidationEvent($object, $errors);
+                    $this->eventDispatcher->dispatch($validationEvent);
+                } finally {
+                    $this->profiler?->stop('validation');
+                }
 
                 // Throw if there are errors
                 if ($validationEvent->hasErrors()) {
@@ -800,10 +808,11 @@ class Mapper
             $object = $preEvent->object;
 
             $this->profiler?->start('normalize');
-
-            $data = $this->normalizer->normalize($object);
-
-            $this->profiler?->stop('normalize');
+            try {
+                $data = $this->normalizer->normalize($object);
+            } finally {
+                $this->profiler?->stop('normalize');
+            }
 
             // Dispatch PostNormalize event
             $postEvent = new PostNormalizeEvent($data, $object);

@@ -9,8 +9,11 @@ namespace Pocta\DataMapper\Debug;
  */
 class Profiler
 {
-    /** @var array<string, array{count: int, totalTime: float, totalMemory: int, startTime?: float, startMemory?: int}> */
+    /** @var array<string, array{count: int, totalTime: float, totalMemory: int}> */
     private array $metrics = [];
+
+    /** @var array<string, list<array{0: float, 1: int}>> Start time/memory per running operation (innermost last) */
+    private array $starts = [];
 
     /** @var array<string> Stack of currently running operations */
     private array $stack = [];
@@ -55,8 +58,8 @@ class Profiler
             ];
         }
 
-        $this->metrics[$operation]['startTime'] = microtime(true);
-        $this->metrics[$operation]['startMemory'] = memory_get_usage(true);
+        // A stack per operation name, so nested operations with the same name are measured separately
+        $this->starts[$operation][] = [microtime(true), memory_get_usage(true)];
         $this->stack[] = $operation;
     }
 
@@ -69,27 +72,25 @@ class Profiler
             return;
         }
 
-        if (!isset($this->metrics[$operation]['startTime'], $this->metrics[$operation]['startMemory'])) {
+        if (empty($this->starts[$operation]) || !isset($this->metrics[$operation])) {
             return; // Operation was not started
         }
 
         $endTime = microtime(true);
         $endMemory = memory_get_usage(true);
 
-        $duration = $endTime - $this->metrics[$operation]['startTime'];
-        $memoryUsed = max(0, $endMemory - $this->metrics[$operation]['startMemory']);
+        [$startTime, $startMemory] = array_pop($this->starts[$operation]);
+        $duration = $endTime - $startTime;
+        $memoryUsed = max(0, $endMemory - $startMemory);
 
         $this->metrics[$operation]['count']++;
         $this->metrics[$operation]['totalTime'] += $duration;
         $this->metrics[$operation]['totalMemory'] += $memoryUsed;
 
-        unset($this->metrics[$operation]['startTime']);
-        unset($this->metrics[$operation]['startMemory']);
-
-        // Remove from stack
-        $key = array_search($operation, $this->stack, true);
-        if ($key !== false) {
-            array_splice($this->stack, (int) $key, 1);
+        // Remove the innermost occurrence from the stack
+        $keys = array_keys($this->stack, $operation, true);
+        if ($keys !== []) {
+            array_splice($this->stack, (int) end($keys), 1);
         }
     }
 
@@ -167,6 +168,7 @@ class Profiler
     public function clear(): void
     {
         $this->metrics = [];
+        $this->starts = [];
         $this->stack = [];
     }
 
