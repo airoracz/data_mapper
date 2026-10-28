@@ -27,6 +27,7 @@ MapperOptions::withStrictMode()      // Enable strict mode only
 MapperOptions::strict()              // Enable both auto-validation and strict mode
 MapperOptions::development()         // Strict validation for development
 MapperOptions::production()          // Lenient configuration for production
+MapperOptions::api()                 // Recommended for HTTP APIs (see below)
 ```
 
 ## Custom Configuration
@@ -55,17 +56,23 @@ $strictOptions = $baseOptions->with(strictMode: true);
 
 ## Recommended Configuration for HTTP APIs
 
-For mappers that process untrusted request bodies:
+For mappers that process untrusted request bodies, use the `api()` preset:
 
 ```php
-$mapper = new Mapper(new MapperOptions(
+$mapper = new Mapper(MapperOptions::api());
+
+// Equivalent to:
+new MapperOptions(
     autoValidate: true,
     strictMode: true,             // unknown keys (typos, extra fields) → ValidationException, also in nested objects
     throwOnMissingData: true,     // default - keep it
     publicPropertiesOnly: true,   // no private/protected data in or out
     symmetricPropertyPaths: true, // request and response share one shape
     jsonDepth: 64,
-));
+);
+
+// Adjust as needed, e.g. accept formatted numbers ("10 000") from frontends:
+$mapper = new Mapper(MapperOptions::api()->with(parseFormattedNumbers: true));
 ```
 
 > **Do not disable `throwOnMissingData` for API input.** With `false`, a typed property without a default

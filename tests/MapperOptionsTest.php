@@ -186,4 +186,27 @@ class MapperOptionsTest extends TestCase
         $object = $mapper->fromArray($data, TestClass::class);
         $this->assertInstanceOf(TestClass::class, $object);
     }
+
+    public function testApiPreset(): void
+    {
+        $options = MapperOptions::api();
+
+        $this->assertTrue($options->autoValidate);
+        $this->assertTrue($options->strictMode);
+        $this->assertTrue($options->throwOnMissingData);
+        $this->assertTrue($options->publicPropertiesOnly);
+        $this->assertTrue($options->symmetricPropertyPaths);
+        $this->assertSame(64, $options->jsonDepth);
+        $this->assertFalse($options->skipNullValues);
+        $this->assertFalse($options->preserveNumericStrings);
+        $this->assertFalse($options->parseFormattedNumbers);
+    }
+
+    public function testApiPresetCanBeAdjusted(): void
+    {
+        $options = MapperOptions::api()->with(parseFormattedNumbers: true);
+
+        $this->assertTrue($options->parseFormattedNumbers);
+        $this->assertTrue($options->publicPropertiesOnly);
+    }
 }

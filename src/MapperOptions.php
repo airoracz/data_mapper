@@ -76,6 +76,24 @@ class MapperOptions
     }
 
     /**
+     * Recommended options for mapping untrusted HTTP request bodies:
+     * auto-validation, strict mode (unknown keys rejected), required data enforced,
+     * public properties only, symmetric property paths and a JSON depth limit of 64.
+     * Adjust with with(), e.g. MapperOptions::api()->with(parseFormattedNumbers: true).
+     */
+    public static function api(): self
+    {
+        return new self(
+            autoValidate: true,
+            strictMode: true,
+            throwOnMissingData: true,
+            publicPropertiesOnly: true,
+            symmetricPropertyPaths: true,
+            jsonDepth: 64,
+        );
+    }
+
+    /**
      * Create a modified copy with updated values
      */
     public function with(
