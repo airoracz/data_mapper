@@ -303,6 +303,10 @@ class RedisCache implements CacheInterface
     {
         try {
             $result = $this->redisPing();
+            // Predis returns a Status object, phpredis true or a string
+            if ($result instanceof \Stringable) {
+                $result = (string) $result;
+            }
             return $result === true || $result === '+PONG' || $result === 'PONG';
         } catch (\Throwable $e) {
             return false;
@@ -321,13 +325,9 @@ class RedisCache implements CacheInterface
             return; // phpredis is valid
         }
 
-        // Check if it's Predis
-        $class = get_class($redis);
-        if (str_contains($class, 'Predis') || str_contains($class, 'Client')) {
-            // Basic duck-typing check for Predis
-            if (method_exists($redis, 'get') && method_exists($redis, 'set')) {
-                return;
-            }
+        // Predis implements commands via __call, so it is recognised by its interface, not by methods
+        if (interface_exists(\Predis\ClientInterface::class) && $redis instanceof \Predis\ClientInterface) {
+            return;
         }
 
         throw new RuntimeException(

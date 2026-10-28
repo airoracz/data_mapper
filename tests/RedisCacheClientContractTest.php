@@ -127,4 +127,35 @@ class RedisCacheClientContractTest extends TestCase
 
         new RedisCache(new \stdClass());
     }
+
+    public function testRejectsLookalikeClientThatIsNotPredis(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Invalid Redis client');
+
+        new RedisCache(new LookalikeHttpClient());
+    }
+
+    public function testAcceptsRealPredisClient(): void
+    {
+        $cache = new RedisCache(new \Predis\Client());
+
+        $this->assertSame('predis', $cache->getStats()['driver']);
+    }
+}
+
+/**
+ * Not a Redis client - only happens to be named *Client and have get()/set().
+ */
+class LookalikeHttpClient
+{
+    public function get(string $url): string
+    {
+        return $url;
+    }
+
+    public function set(string $key, string $value): bool
+    {
+        return true;
+    }
 }

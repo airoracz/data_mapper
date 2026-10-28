@@ -8,7 +8,7 @@ namespace Tests;
  * Minimal Predis-like client: set/setex return a status object (or null on failure),
  * expire/persist return int, keys() supports a trailing '*' pattern.
  */
-class FakePredisClient
+class FakePredisClient extends \Predis\Client
 {
     /** @var array<string, string> */
     public array $data = [];
@@ -148,9 +148,10 @@ class FakePredisClient
         return ['redis_version' => '7.0'];
     }
 
-    public function ping(): string
+    public function ping(): \Predis\Response\Status
     {
         $this->guard();
-        return 'PONG';
+        // Like real Predis: a Status response object, not a string
+        return \Predis\Response\Status::get('PONG');
     }
 }
