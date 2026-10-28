@@ -28,6 +28,25 @@ class Normalizer
 
     private bool $symmetricPropertyPaths = false;
 
+    /**
+     * Per-class normalization plan: attribute-derived settings and filter instances, resolved once.
+     * Settings that can change at runtime (public-only, symmetric paths, skip nulls) are applied per call.
+     *
+     * @var array<class-string, list<array{
+     *     property: ReflectionProperty,
+     *     jsonKey: string,
+     *     path: ?string,
+     *     typeName: string,
+     *     arrayOf: ?string,
+     *     classType: ?class-string,
+     *     outputFormat: ?string,
+     *     filters: list<\Pocta\DataMapper\Attributes\Filters\FilterInterface>,
+     *     normalizable: bool,
+     *     normalizableWhenPublicOnly: bool
+     * }>>
+     */
+    private array $plans = [];
+
     public function __construct(
         ?TypeResolver $typeResolver = null,
         /** @phpstan-ignore-next-line property.onlyWritten */
@@ -77,6 +96,7 @@ class Normalizer
      * @return array<string, mixed>
      *
      * @throws \Pocta\DataMapper\Exceptions\CircularReferenceException
+     * @throws \InvalidArgumentException When a mapping attribute on the class is misconfigured.
      */
     public function normalize(object $object): array
     {
@@ -95,29 +115,31 @@ class Normalizer
         $this->objectStack[] = $objectHash;
 
         try {
-            $reflection = new ReflectionClass($object);
             $data = [];
 
-            foreach ($reflection->getProperties() as $property) {
-                if (!PropertyVisibilityResolver::isPropertyNormalizable($property, $this->publicPropertiesOnly)) {
+            foreach ($this->plans[$object::class] ?? $this->buildPlan($object) as $field) {
+                if (!($this->publicPropertiesOnly ? $field['normalizableWhenPublicOnly'] : $field['normalizable'])) {
                     continue;
                 }
 
-                $jsonKey = $this->getJsonKey($property);
-                $value = $this->getPropertyValue($property, $object);
+                $value = $this->getPropertyValue($field['property'], $object);
 
-                if ($value !== null || $this->shouldIncludeNull($property)) {
-                    $typeName = $this->getPropertyType($property);
-                    $arrayOf = $this->getArrayOf($property);
-                    $classType = $this->getClassType($property);
-                    $outputFormat = $this->getOutputFormat($property);
-                    $normalizedValue = $this->normalizeValue($value, $typeName, $arrayOf, $classType, $outputFormat);
-                    // Apply post-normalization filters, if any
-                    $normalizedValue = $this->applyFilters($property, $normalizedValue);
+                if ($value !== null || !$this->skipNullValues) {
+                    $normalizedValue = $this->normalizeValue(
+                        $value,
+                        $field['typeName'],
+                        $field['arrayOf'],
+                        $field['classType'],
+                        $field['outputFormat']
+                    );
+                    // Apply post-normalization filters, in declaration order
+                    foreach ($field['filters'] as $filter) {
+                        $normalizedValue = $filter->apply($normalizedValue);
+                    }
                     if ($this->symmetricPropertyPaths) {
-                        $this->writeOutputValue($data, $property, $jsonKey, $normalizedValue);
+                        $this->writeOutputValue($data, $field['property'], $field['jsonKey'], $field['path'], $normalizedValue);
                     } else {
-                        $data[$jsonKey] = $normalizedValue;
+                        $data[$field['jsonKey']] = $normalizedValue;
                     }
                 }
             }
@@ -164,9 +186,8 @@ class Normalizer
      *
      * @throws \LogicException When the target is already taken by another property.
      */
-    private function writeOutputValue(array &$data, ReflectionProperty $property, string $jsonKey, mixed $value): void
+    private function writeOutputValue(array &$data, ReflectionProperty $property, string $jsonKey, ?string $path, mixed $value): void
     {
-        $path = $this->getPath($property);
         $target = $path ?? $jsonKey;
         $collision = sprintf(
             'Cannot normalize %s::$%s: output location "%s" collides with another property',
@@ -287,18 +308,6 @@ class Normalizer
     }
 
     /**
-     * Determines if null values should be included in output.
-     *
-     * @param ReflectionProperty $property
-     *
-     * @return bool
-     */
-    private function shouldIncludeNull(ReflectionProperty $property): bool
-    {
-        return !$this->skipNullValues;
-    }
-
-    /**
      * Gets arrayOf from property attributes.
      *
      * @param ReflectionProperty $property
@@ -376,26 +385,52 @@ class Normalizer
     }
 
     /**
-     * Applies all filter attributes present on the property to the normalized value.
-     * Filters are applied in the order they are declared on the property.
+     * Builds and caches the normalization plan for the object's class.
      *
-     * @param ReflectionProperty $property
-     * @param mixed $value
+     * All attributes are instantiated here (as before, a misconfigured attribute throws);
+     * if building fails nothing is cached, so the error repeats on every call.
+     * Filters are stateless after construction, so their instances are reused.
      *
-     * @return mixed
+     * @return list<array{
+     *     property: ReflectionProperty,
+     *     jsonKey: string,
+     *     path: ?string,
+     *     typeName: string,
+     *     arrayOf: ?string,
+     *     classType: ?class-string,
+     *     outputFormat: ?string,
+     *     filters: list<\Pocta\DataMapper\Attributes\Filters\FilterInterface>,
+     *     normalizable: bool,
+     *     normalizableWhenPublicOnly: bool
+     * }>
      */
-    private function applyFilters(ReflectionProperty $property, mixed $value): mixed
+    private function buildPlan(object $object): array
     {
-        $attributes = $property->getAttributes();
+        $plan = [];
 
-        foreach ($attributes as $attribute) {
-            // Instantiate and check if attribute is a filter
-            $instance = $attribute->newInstance();
-            if ($instance instanceof \Pocta\DataMapper\Attributes\Filters\FilterInterface) {
-                $value = $instance->apply($value);
+        foreach ((new ReflectionClass($object))->getProperties() as $property) {
+            $filters = [];
+            foreach ($property->getAttributes() as $attribute) {
+                $instance = $attribute->newInstance();
+                if ($instance instanceof \Pocta\DataMapper\Attributes\Filters\FilterInterface) {
+                    $filters[] = $instance;
+                }
             }
+
+            $plan[] = [
+                'property' => $property,
+                'jsonKey' => $this->getJsonKey($property),
+                'path' => $this->getPath($property),
+                'typeName' => $this->getPropertyType($property),
+                'arrayOf' => $this->getArrayOf($property),
+                'classType' => $this->getClassType($property),
+                'outputFormat' => $this->getOutputFormat($property),
+                'filters' => $filters,
+                'normalizable' => PropertyVisibilityResolver::isPropertyNormalizable($property, false),
+                'normalizableWhenPublicOnly' => PropertyVisibilityResolver::isPropertyNormalizable($property, true),
+            ];
         }
 
-        return $value;
+        return $this->plans[$object::class] = $plan;
     }
 }
