@@ -20,9 +20,11 @@ use Attribute;
 #[Attribute(Attribute::TARGET_PROPERTY | Attribute::TARGET_PARAMETER)]
 class Regex implements AssertInterface
 {
+    private const DEFAULT_MESSAGE = 'Value does not match the required pattern';
+
     public function __construct(
         public readonly string $pattern,
-        public readonly string $message = 'Value does not match the required pattern',
+        public readonly string $message = self::DEFAULT_MESSAGE,
         /** @var array<string> */
         public readonly array $groups = ['Default'],
     ) {
@@ -39,7 +41,10 @@ class Regex implements AssertInterface
         }
 
         if (preg_match($this->pattern, $value) !== 1) {
-            return str_replace('Value', "Property '{$propertyName}'", $this->message);
+            // Only the default message gets the property name; a custom message is returned as written
+            return $this->message === self::DEFAULT_MESSAGE
+                ? str_replace('Value', "Property '{$propertyName}'", $this->message)
+                : $this->message;
         }
 
         return null;

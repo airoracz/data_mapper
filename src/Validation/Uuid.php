@@ -20,9 +20,11 @@ use Attribute;
 #[Attribute(Attribute::TARGET_PROPERTY | Attribute::TARGET_PARAMETER)]
 class Uuid implements AssertInterface
 {
+    private const DEFAULT_MESSAGE = 'Value must be a valid UUID';
+
     public function __construct(
         public readonly ?int $version = null,
-        public readonly string $message = 'Value must be a valid UUID',
+        public readonly string $message = self::DEFAULT_MESSAGE,
         /** @var array<string> */
         public readonly array $groups = ['Default'],
     ) {
@@ -45,21 +47,33 @@ class Uuid implements AssertInterface
         $pattern = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
         if (!preg_match($pattern, $value)) {
-            $msg = $this->message;
-            if ($this->version !== null) {
-                $msg = str_replace('UUID', "UUID v{$this->version}", $msg);
-            }
-            return str_replace('Value', "Property '{$propertyName}'", $msg);
+            return $this->failure($propertyName);
         }
 
         // Validate specific version if requested
         if ($this->version !== null) {
             $versionChar = $value[14]; // 15th character (0-indexed) indicates version
             if ((int) $versionChar !== $this->version) {
-                return "Property '{$propertyName}' must be a valid UUID v{$this->version}";
+                return $this->failure($propertyName);
             }
         }
 
         return null;
+    }
+
+    /**
+     * Only the default message gets the property name (and version); a custom message is returned as written.
+     */
+    private function failure(string $propertyName): string
+    {
+        if ($this->message !== self::DEFAULT_MESSAGE) {
+            return $this->message;
+        }
+
+        $message = $this->version !== null
+            ? str_replace('UUID', "UUID v{$this->version}", $this->message)
+            : $this->message;
+
+        return str_replace('Value', "Property '{$propertyName}'", $message);
     }
 }

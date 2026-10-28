@@ -16,8 +16,10 @@ use Attribute;
 #[Attribute(Attribute::TARGET_PROPERTY | Attribute::TARGET_PARAMETER)]
 class Iban implements AssertInterface
 {
+    private const DEFAULT_MESSAGE = 'Value must be a valid IBAN';
+
     public function __construct(
-        public readonly string $message = 'Value must be a valid IBAN',
+        public readonly string $message = self::DEFAULT_MESSAGE,
         /** @var array<string> */
         public readonly array $groups = ['Default'],
     ) {
@@ -38,12 +40,12 @@ class Iban implements AssertInterface
 
         // IBAN must be between 15 and 34 characters
         if (strlen($iban) < 15 || strlen($iban) > 34) {
-            return str_replace('Value', "Property '{$propertyName}'", $this->message);
+            return $this->failure($propertyName);
         }
 
         // Must start with 2 letters (country code) followed by 2 digits (check digits)
         if (!preg_match('/^[A-Z]{2}[0-9]{2}[A-Z0-9]+$/', $iban)) {
-            return str_replace('Value', "Property '{$propertyName}'", $this->message);
+            return $this->failure($propertyName);
         }
 
         // Move first 4 characters to the end
@@ -69,7 +71,7 @@ class Iban implements AssertInterface
         }
 
         if (!$isValid) {
-            return str_replace('Value', "Property '{$propertyName}'", $this->message);
+            return $this->failure($propertyName);
         }
 
         return null;
@@ -85,5 +87,15 @@ class Iban implements AssertInterface
             $remainder = ($remainder * 10 + (int) $number[$i]) % 97;
         }
         return $remainder;
+    }
+
+    /**
+     * Only the default message gets the property name; a custom message is returned as written.
+     */
+    private function failure(string $propertyName): string
+    {
+        return $this->message === self::DEFAULT_MESSAGE
+            ? str_replace('Value', "Property '{$propertyName}'", $this->message)
+            : $this->message;
     }
 }
