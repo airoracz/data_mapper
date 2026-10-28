@@ -256,7 +256,7 @@ class Validator
 
                 $error = $validator->validate($value, $instance, $object);
                 if ($error !== null) {
-                    $errors[$fullPath] = $error;
+                    $errors[$fullPath] = $this->interpolate($error, $instance, $propertyName, $value);
                     $hasError = true;
                 }
                 continue;
@@ -270,7 +270,7 @@ class Validator
 
                 $error = $instance->validate($value, $propertyName);
                 if ($error !== null) {
-                    $errors[$fullPath] = $error;
+                    $errors[$fullPath] = $this->interpolate($error, $instance, $propertyName, $value);
                     $hasError = true;
                 }
             }
@@ -353,5 +353,55 @@ class Validator
         }
 
         return false;
+    }
+
+    /**
+     * Replaces {{ name }}, {{ value }} and {{ <option> }} placeholders in a message. Options are the
+     * public scalar (or list-of-scalar) properties of the constraint, e.g. {{ min }}, {{ max }},
+     * {{ choices }}. {{ value }} is always the validated value. Unknown placeholders are kept;
+     * messages without "{{" are returned unchanged.
+     */
+    private function interpolate(string $message, object $constraint, string $propertyName, mixed $value): string
+    {
+        if (!str_contains($message, '{{')) {
+            return $message;
+        }
+
+        $params = [];
+        foreach (get_object_vars($constraint) as $option => $optionValue) {
+            $params[$option] = $this->stringify($optionValue);
+        }
+        $params['name'] = $propertyName;
+        $params['value'] = $this->stringify($value);
+
+        return (string) preg_replace_callback(
+            '/\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/',
+            fn(array $match): string => $params[$match[1]] ?? $match[0],
+            $message
+        );
+    }
+
+    private function stringify(mixed $value): ?string
+    {
+        if (is_array($value)) {
+            $items = [];
+            foreach ($value as $item) {
+                if (!is_scalar($item)) {
+                    return null;
+                }
+                $items[] = is_bool($item) ? ($item ? 'true' : 'false') : (string) $item;
+            }
+
+            return implode(', ', $items);
+        }
+
+        return match (true) {
+            $value === null => 'null',
+            is_bool($value) => $value ? 'true' : 'false',
+            is_scalar($value) => (string) $value,
+            $value instanceof \DateTimeInterface => $value->format(\DateTimeInterface::ATOM),
+            $value instanceof \Stringable => (string) $value,
+            default => null,
+        };
     }
 }

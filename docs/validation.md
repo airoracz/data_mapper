@@ -197,6 +197,29 @@ Benefits of this format:
 - **All errors at once**: Get all validation errors in one response
 - **Array values**: Each field has an array of error messages, allowing multiple errors per field
 
+## Custom Messages with Placeholders
+
+A custom `message` may contain placeholders:
+
+| Placeholder | Value |
+|-------------|-------|
+| `{{ name }}` | Property name |
+| `{{ value }}` | The validated value (arrays of scalars joined with `, `) |
+| `{{ <option> }}` | Any public option of the validator, e.g. `{{ min }}`, `{{ max }}`, `{{ choices }}` |
+
+```php
+#[Length(min: 3, message: '{{ name }} must have at least {{ min }} characters, got "{{ value }}"')]
+public string $code;
+
+#[Range(min: 1, max: 10, message: 'Quantity must be between {{ min }} and {{ max }}')]
+public int $qty;
+
+#[Choice(choices: ['red', 'green'], message: 'Choose one of: {{ choices }}')]
+public string $color;
+```
+
+Unknown placeholders are left as they are; default messages do not use placeholders.
+
 ## Available Validators
 
 ### NotNull
