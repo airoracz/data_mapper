@@ -16,6 +16,8 @@ use InvalidArgumentException;
 class DateTimeType implements TypeInterface
 {
     private const DEFAULT_FORMAT = 'Y-m-d\TH:i:s.uP';
+    private ?DateTimeZone $resolvedTimezone = null;
+
     private const FALLBACK_FORMATS = [
         'Y-m-d\TH:i:s.uP',      // ISO 8601 with microseconds
         'Y-m-d\TH:i:sP',        // ISO 8601 without microseconds
@@ -86,8 +88,12 @@ class DateTimeType implements TypeInterface
         }
 
         // Try fallback formats
+        $stringValue = (string) $value;
         foreach (self::FALLBACK_FORMATS as $format) {
-            $dateTime = $this->tryParseWithFormat((string) $value, $format, $timezone, $fieldName, false);
+            if (!self::canRoundTrip($format, $stringValue)) {
+                continue;
+            }
+            $dateTime = $this->tryParseWithFormat($stringValue, $format, $timezone, $fieldName, false);
             if ($dateTime !== null) {
                 return $dateTime;
             }
@@ -115,13 +121,35 @@ class DateTimeType implements TypeInterface
     }
 
     /**
-     * Gets the configured timezone or default UTC
+     * Cheap pre-check whether a fallback format's output could equal the value. A format whose
+     * output always contains (or never contains) a character cannot pass the round-trip check
+     * in tryParseWithFormat() for a value without (or with) it, so parsing it would return null anyway.
+     */
+    private static function canRoundTrip(string $format, string $value): bool
+    {
+        return match ($format) {
+            'Y-m-d\TH:i:s.uP' => str_contains($value, 'T') && str_contains($value, '.'),
+            'Y-m-d\TH:i:sP' => str_contains($value, 'T'),
+            'Y-m-d H:i:s' => str_contains($value, ' '),
+            'Y-m-d', 'U' => !str_contains($value, ':'),
+            default => true,
+        };
+    }
+
+    /**
+     * Gets the configured timezone or default UTC.
+     * DateTimeZone is immutable, so one instance is reused; an invalid timezone is not cached
+     * and keeps throwing on every call.
      */
     private function getTimezone(): DateTimeZone
     {
+        if ($this->resolvedTimezone !== null) {
+            return $this->resolvedTimezone;
+        }
+
         if ($this->timezone !== null) {
             try {
-                return new DateTimeZone($this->timezone);
+                return $this->resolvedTimezone = new DateTimeZone($this->timezone);
             } catch (\Exception $e) {
                 throw new InvalidArgumentException(
                     "Invalid timezone: '{$this->timezone}'. " . $e->getMessage()
@@ -129,7 +157,7 @@ class DateTimeType implements TypeInterface
             }
         }
 
-        return new DateTimeZone('UTC');
+        return $this->resolvedTimezone = new DateTimeZone('UTC');
     }
 
     /**
