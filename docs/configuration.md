@@ -14,6 +14,7 @@ The `MapperOptions` class provides a clean way to configure the Mapper behavior.
 | `skipNullValues` | `bool` | `false` | Skip null values during normalization (don't include in output) |
 | `preserveNumericStrings` | `bool` | `false` | Keep numeric strings as strings instead of converting to numbers |
 | `publicPropertiesOnly` | `bool` | `false` | Map only public properties (see [Property Visibility](#property-visibility)) |
+| `parseFormattedNumbers` | `bool` | `false` | Accept formatted numeric strings for `int`/`float` (see [Formatted Numbers](#formatted-numbers)) |
 | `jsonDepth` | `int` | `512` | Maximum nesting depth for `fromJson()` / `fromJsonCollection()`; deeper input throws `JsonException` |
 | `symmetricPropertyPaths` | `bool` | `false` | Normalize properties with `path` back into the same nested structure (see [advanced](advanced.md#important-notes)) |
 
@@ -71,6 +72,28 @@ $mapper = new Mapper(new MapperOptions(
 > that is missing from input stays uninitialized; validation only reports it when the property carries a
 > constraint (e.g. `#[NotBlank]`). The first read then fails with
 > `Error: must not be accessed before initialization` (HTTP 500 instead of 422).
+
+## Formatted Numbers
+
+Frontends often send numbers as formatted strings. With `parseFormattedNumbers: true`, `int` and `float`
+properties (including nested objects and `arrayOf: ArrayElementType::Int/Float` elements) accept them:
+
+```php
+$mapper = new Mapper(new MapperOptions(parseFormattedNumbers: true));
+```
+
+| Input | `int` | `float` |
+|-------|-------|---------|
+| `"10 000"`, `"10\u{00A0}000"` (NBSP), `"10\u{202F}000"` | `10000` | `10000.0` |
+| `"1 234,50"` | error | `1234.5` |
+| `"12,5"` | error (no silent truncation) | `12.5` |
+| `"12,0"` | `12` | `12.0` |
+| `"1.000,5"`, `"1,234.5"`, `"1,2,3"` | error (ambiguous) | error (ambiguous) |
+
+Spaces, NBSP and narrow NBSP are thousands separators, a single comma is the decimal separator (Czech
+convention). Plain numeric strings (`"10000"`, `"12.5"`) behave exactly as without the option. Without the option,
+formatted strings are rejected with `ValidationException`. For a single property, the `#[ToIntFilter]` /
+`#[ToFloatFilter]` filters can be used instead.
 
 ## Property Visibility
 

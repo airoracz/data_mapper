@@ -15,6 +15,7 @@ class MapperOptions
      * @param bool $publicPropertiesOnly Map only public properties; non-public ones only with #[MapProperty] or #[MapDateTimeProperty]
      * @param bool $symmetricPropertyPaths Normalize properties with a `path` back into the same nested structure (instead of a flat key)
      * @param int $jsonDepth Maximum nesting depth when decoding JSON input (fromJson, fromJsonCollection)
+     * @param bool $parseFormattedNumbers Accept formatted numeric strings for int/float ("10 000", "1 234,50")
      */
     public function __construct(
         public readonly bool $autoValidate = false,
@@ -25,6 +26,7 @@ class MapperOptions
         public readonly bool $publicPropertiesOnly = false,
         public readonly bool $symmetricPropertyPaths = false,
         public readonly int $jsonDepth = 512,
+        public readonly bool $parseFormattedNumbers = false,
     ) {
         if ($jsonDepth < 1) {
             throw new \InvalidArgumentException(sprintf('jsonDepth must be at least 1, %d given', $jsonDepth));
@@ -91,6 +93,7 @@ class MapperOptions
         ?bool $publicPropertiesOnly = null,
         ?bool $symmetricPropertyPaths = null,
         ?int $jsonDepth = null,
+        ?bool $parseFormattedNumbers = null,
     ): self {
         return new self(
             autoValidate: $autoValidate ?? $this->autoValidate,
@@ -101,6 +104,7 @@ class MapperOptions
             publicPropertiesOnly: $publicPropertiesOnly ?? $this->publicPropertiesOnly,
             symmetricPropertyPaths: $symmetricPropertyPaths ?? $this->symmetricPropertyPaths,
             jsonDepth: $jsonDepth ?? $this->jsonDepth,
+            parseFormattedNumbers: $parseFormattedNumbers ?? $this->parseFormattedNumbers,
         );
     }
 }

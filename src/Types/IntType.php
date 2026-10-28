@@ -8,6 +8,16 @@ use InvalidArgumentException;
 
 class IntType extends AbstractType
 {
+    private bool $parseFormattedNumbers = false;
+
+    /**
+     * Accept formatted numeric strings ("10 000", "12,0"); see FormattedNumberParser.
+     */
+    public function setParseFormattedNumbers(bool $parseFormattedNumbers): void
+    {
+        $this->parseFormattedNumbers = $parseFormattedNumbers;
+    }
+
     public function getName(): string
     {
         return 'int';
@@ -26,6 +36,14 @@ class IntType extends AbstractType
 
         if (is_numeric($value)) {
             return (int) $value;
+        }
+
+        if ($this->parseFormattedNumbers && is_string($value)) {
+            $normalized = FormattedNumberParser::normalize($value);
+            // A fractional part is accepted only when it is zero - never truncate silently
+            if ($normalized !== null && preg_match('/^-?\d+(\.0*)?$/', $normalized) === 1) {
+                return (int) $normalized;
+            }
         }
 
         throw new InvalidArgumentException(

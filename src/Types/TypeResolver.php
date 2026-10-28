@@ -48,6 +48,18 @@ class TypeResolver
     }
 
     /**
+     * Accept formatted numeric strings ("10 000", "1 234,50") for the built-in int and float types.
+     */
+    public function setParseFormattedNumbers(bool $parseFormattedNumbers): void
+    {
+        foreach ($this->types as $type) {
+            if ($type instanceof IntType || $type instanceof FloatType) {
+                $type->setParseFormattedNumbers($parseFormattedNumbers);
+            }
+        }
+    }
+
+    /**
      * Set public-only mapping for nested (de)normalizations.
      */
     public function setPublicPropertiesOnly(bool $publicPropertiesOnly): void

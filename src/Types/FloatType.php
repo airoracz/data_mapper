@@ -8,6 +8,16 @@ use InvalidArgumentException;
 
 class FloatType extends AbstractType
 {
+    private bool $parseFormattedNumbers = false;
+
+    /**
+     * Accept formatted numeric strings ("1 234,50"); see FormattedNumberParser.
+     */
+    public function setParseFormattedNumbers(bool $parseFormattedNumbers): void
+    {
+        $this->parseFormattedNumbers = $parseFormattedNumbers;
+    }
+
     public function getName(): string
     {
         return 'float';
@@ -26,6 +36,13 @@ class FloatType extends AbstractType
 
         if (is_numeric($value)) {
             return (float) $value;
+        }
+
+        if ($this->parseFormattedNumbers && is_string($value)) {
+            $normalized = FormattedNumberParser::normalize($value);
+            if ($normalized !== null) {
+                return (float) $normalized;
+            }
         }
 
         throw new InvalidArgumentException(

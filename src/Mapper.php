@@ -91,6 +91,7 @@ class Mapper
         $this->typeResolver->setSkipNullValues($options->skipNullValues);
         $this->typeResolver->setPublicPropertiesOnly($this->publicPropertiesOnly);
         $this->typeResolver->setSymmetricPropertyPaths($options->symmetricPropertyPaths);
+        $this->typeResolver->setParseFormattedNumbers($options->parseFormattedNumbers);
         $this->normalizer = $normalizer ?? new Normalizer($this->typeResolver, $this->metadataFactory, $options->skipNullValues);
         $this->normalizer->setPublicPropertiesOnly($this->publicPropertiesOnly);
         $this->normalizer->setSymmetricPropertyPaths($options->symmetricPropertyPaths);
