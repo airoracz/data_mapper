@@ -20,6 +20,8 @@ class TypeResolver
 
     private bool $publicPropertiesOnly = false;
 
+    private bool $throwOnMissingData = true;
+
     private bool $symmetricPropertyPaths = false;
 
     /** @var array<string, mixed>|null */
@@ -42,6 +44,7 @@ class TypeResolver
         if ($this->sharedDenormalizer === null) {
             $this->sharedDenormalizer = new \Pocta\DataMapper\Denormalizer\Denormalizer($this);
             $this->sharedDenormalizer->setStrictMode($this->strictMode);
+            $this->sharedDenormalizer->setThrowOnMissingData($this->throwOnMissingData);
             $this->sharedDenormalizer->setPublicPropertiesOnly($this->publicPropertiesOnly);
         }
         return $this->sharedDenormalizer;
@@ -110,6 +113,16 @@ class TypeResolver
     public function setStrictMode(bool $strictMode): void
     {
         $this->strictMode = $strictMode;
+        $this->sharedDenormalizer?->setStrictMode($strictMode);
+    }
+
+    /**
+     * Set throw-on-missing-data for nested denormalizations.
+     */
+    public function setThrowOnMissingData(bool $throwOnMissingData): void
+    {
+        $this->throwOnMissingData = $throwOnMissingData;
+        $this->sharedDenormalizer?->setThrowOnMissingData($throwOnMissingData);
     }
 
     /**

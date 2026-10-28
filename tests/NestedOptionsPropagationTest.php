@@ -107,6 +107,55 @@ class NestedOptionsPropagationTest extends TestCase
         return $outer;
     }
 
+    public function testThrowOnMissingDataFalseAppliesToNestedObjects(): void
+    {
+        $mapper = new Mapper(new MapperOptions(throwOnMissingData: false));
+
+        $holder = $mapper->fromArray(['leaf' => ['other' => 'x']], NestedLeafHolder::class);
+
+        $this->assertInstanceOf(NestedLeaf::class, $holder->leaf);
+    }
+
+    public function testMissingNestedDataIsStillRejectedByDefault(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage("leaf.required");
+
+        (new Mapper())->fromArray(['leaf' => ['other' => 'x']], NestedLeafHolder::class);
+    }
+
+    public function testStrictModeEnabledAtRuntimeAppliesToNestedObjects(): void
+    {
+        $mapper = new Mapper();
+        $mapper->setStrictMode(true);
+
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage("Unknown key 'typo' at path 'leaf.typo'");
+
+        $mapper->fromArray(['leaf' => ['required' => 'r', 'typo' => 'x']], NestedLeafHolder::class);
+    }
+
+    public function testStrictModeDisabledAtRuntimeAppliesToNestedObjects(): void
+    {
+        $mapper = new Mapper(MapperOptions::withStrictMode());
+        $mapper->fromArray(['leaf' => ['required' => 'r']], NestedLeafHolder::class);
+        $mapper->setStrictMode(false);
+
+        $holder = $mapper->fromArray(['leaf' => ['required' => 'r', 'typo' => 'x']], NestedLeafHolder::class);
+
+        $this->assertSame('r', $holder->leaf->required);
+    }
+
+    public function testThrowOnMissingDataChangedAtRuntimeAppliesToNestedObjects(): void
+    {
+        $mapper = new Mapper();
+        $mapper->setThrowOnMissingData(false);
+
+        $holder = $mapper->fromArray(['leaf' => ['other' => 'x']], NestedLeafHolder::class);
+
+        $this->assertInstanceOf(NestedLeaf::class, $holder->leaf);
+    }
+
     public function testNestedObjectOutputWritesPropertyPath(): void
     {
         $result = $this->createMapper()->toArray($this->createOuter());
@@ -154,4 +203,16 @@ class NestedNullableOuterDto
     /** @var NestedNullableInnerDto[] */
     #[MapProperty(arrayOf: NestedNullableInnerDto::class)]
     public array $items = [];
+}
+
+class NestedLeaf
+{
+    public string $required;
+
+    public string $other = '';
+}
+
+class NestedLeafHolder
+{
+    public NestedLeaf $leaf;
 }

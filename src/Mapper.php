@@ -88,6 +88,7 @@ class Mapper
         $this->denormalizer->setThrowOnMissingData($this->throwOnMissingData);
         $this->denormalizer->setPublicPropertiesOnly($this->publicPropertiesOnly);
         $this->typeResolver->setStrictMode($this->strictMode);
+        $this->typeResolver->setThrowOnMissingData($this->throwOnMissingData);
         $this->typeResolver->setSkipNullValues($options->skipNullValues);
         $this->typeResolver->setPublicPropertiesOnly($this->publicPropertiesOnly);
         $this->typeResolver->setSymmetricPropertyPaths($options->symmetricPropertyPaths);
@@ -213,6 +214,7 @@ class Mapper
     {
         $this->throwOnMissingData = $throwOnMissingData;
         $this->denormalizer->setThrowOnMissingData($throwOnMissingData);
+        $this->typeResolver->setThrowOnMissingData($throwOnMissingData);
     }
 
     /**
