@@ -40,7 +40,7 @@ class Normalizer
      *     arrayOf: ?string,
      *     classType: ?class-string,
      *     outputFormat: ?string,
-     *     filters: list<\Pocta\DataMapper\Attributes\Filters\FilterInterface>,
+     *     filters: \Pocta\DataMapper\Attributes\Filters\FilterChain,
      *     normalizable: bool,
      *     normalizableWhenPublicOnly: bool
      * }>>
@@ -133,9 +133,7 @@ class Normalizer
                         $field['outputFormat']
                     );
                     // Apply post-normalization filters, in declaration order
-                    foreach ($field['filters'] as $filter) {
-                        $normalizedValue = $filter->apply($normalizedValue);
-                    }
+                    $normalizedValue = $field['filters']->apply($normalizedValue);
                     if ($this->symmetricPropertyPaths) {
                         $this->writeOutputValue($data, $field['property'], $field['jsonKey'], $field['path'], $normalizedValue);
                     } else {
@@ -389,7 +387,7 @@ class Normalizer
      *
      * All attributes are instantiated here (as before, a misconfigured attribute throws);
      * if building fails nothing is cached, so the error repeats on every call.
-     * Filters are stateless after construction, so their instances are reused.
+     * Built-in filter instances are reused; user-defined filters are instantiated per call (see FilterChain).
      *
      * @return list<array{
      *     property: ReflectionProperty,
@@ -399,7 +397,7 @@ class Normalizer
      *     arrayOf: ?string,
      *     classType: ?class-string,
      *     outputFormat: ?string,
-     *     filters: list<\Pocta\DataMapper\Attributes\Filters\FilterInterface>,
+     *     filters: \Pocta\DataMapper\Attributes\Filters\FilterChain,
      *     normalizable: bool,
      *     normalizableWhenPublicOnly: bool
      * }>
@@ -409,13 +407,7 @@ class Normalizer
         $plan = [];
 
         foreach ((new ReflectionClass($object))->getProperties() as $property) {
-            $filters = [];
-            foreach ($property->getAttributes() as $attribute) {
-                $instance = $attribute->newInstance();
-                if ($instance instanceof \Pocta\DataMapper\Attributes\Filters\FilterInterface) {
-                    $filters[] = $instance;
-                }
-            }
+            $filters = \Pocta\DataMapper\Attributes\Filters\FilterChain::fromAttributes($property->getAttributes());
 
             $plan[] = [
                 'property' => $property,

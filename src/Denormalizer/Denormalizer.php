@@ -66,7 +66,7 @@ class Denormalizer
      * Filter instances per property/parameter, built lazily on first use - exactly where they were
      * instantiated before, so a misconfigured filter still throws only when its value is processed.
      *
-     * @var array<int, list<\Pocta\DataMapper\Attributes\Filters\FilterInterface>>
+     * @var array<int, \Pocta\DataMapper\Attributes\Filters\FilterChain>
      */
     private array $filterCache = [];
 
@@ -945,27 +945,15 @@ class Denormalizer
 
     /**
      * Applies filter attributes of the property/parameter, in declaration order.
-     * Instances are created on first use (all attributes are instantiated, as before) and reused.
+     * The chain is built on first use (all attributes are instantiated, as before); built-in filter
+     * instances are reused, user-defined filters are instantiated per apply (see FilterChain).
      */
     private function applyFilters(ReflectionProperty|ReflectionParameter $reflector, mixed $value): mixed
     {
         $id = spl_object_id($reflector);
-        if (!isset($this->filterCache[$id])) {
-            $filters = [];
-            foreach ($reflector->getAttributes() as $attribute) {
-                $instance = $attribute->newInstance();
-                if ($instance instanceof \Pocta\DataMapper\Attributes\Filters\FilterInterface) {
-                    $filters[] = $instance;
-                }
-            }
-            $this->filterCache[$id] = $filters;
-        }
+        $this->filterCache[$id] ??= \Pocta\DataMapper\Attributes\Filters\FilterChain::fromAttributes($reflector->getAttributes());
 
-        foreach ($this->filterCache[$id] as $filter) {
-            $value = $filter->apply($value);
-        }
-
-        return $value;
+        return $this->filterCache[$id]->apply($value);
     }
 
     private function getHydrator(ReflectionProperty|ReflectionParameter $reflector): \Pocta\DataMapper\Attributes\MapPropertyWithFunction
