@@ -39,6 +39,16 @@ class CacheTest extends TestCase
         $this->assertFalse($cache->has('key2'));
     }
 
+    public function testArrayCacheStoresNullValue(): void
+    {
+        $cache = new ArrayCache();
+        $cache->set('nullable', null);
+
+        $this->assertTrue($cache->has('nullable'));
+        $this->assertNull($cache->get('nullable', 'default'));
+        $this->assertSame('default', $cache->get('missing', 'default'));
+    }
+
     public function testArrayCacheSize(): void
     {
         $cache = new ArrayCache();

@@ -16,7 +16,7 @@ class ArrayCache implements CacheInterface
 
     public function get(string $key, mixed $default = null): mixed
     {
-        return $this->cache[$key] ?? $default;
+        return array_key_exists($key, $this->cache) ? $this->cache[$key] : $default;
     }
 
     public function set(string $key, mixed $value, ?int $ttl = null): bool

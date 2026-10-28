@@ -33,6 +33,25 @@ class FileCacheTest extends TestCase
         $this->assertSame('value1', $this->cache->get('key1'));
     }
 
+    public function testNullValueIsStoredAndReturned(): void
+    {
+        $this->cache->set('nullable', null);
+
+        $this->assertNull($this->cache->get('nullable', 'default'));
+        $this->assertTrue($this->cache->has('nullable'));
+    }
+
+    public function testFalsyValuesAreStoredAndReturned(): void
+    {
+        $this->cache->set('false', false);
+        $this->cache->set('zero', 0);
+        $this->cache->set('empty', '');
+
+        $this->assertFalse($this->cache->get('false', 'default'));
+        $this->assertSame(0, $this->cache->get('zero', 'default'));
+        $this->assertSame('', $this->cache->get('empty', 'default'));
+    }
+
     public function testGetWithDefault(): void
     {
         $this->assertSame('default', $this->cache->get('nonexistent', 'default'));

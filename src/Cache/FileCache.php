@@ -52,7 +52,8 @@ class FileCache implements CacheInterface
             $data = @unserialize($content);
 
             // Check if data is valid and not expired
-            if (!is_array($data) || !isset($data['value'], $data['expires'])) {
+            // array_key_exists, not isset: a cached null value is valid
+            if (!is_array($data) || !array_key_exists('value', $data) || !isset($data['expires'])) {
                 $this->delete($key);
                 return $default;
             }
