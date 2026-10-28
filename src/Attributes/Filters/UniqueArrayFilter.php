@@ -19,6 +19,8 @@ class UniqueArrayFilter implements FilterInterface
         if (!is_array($value)) {
             return $value;
         }
+        // Input is untrusted mixed data; non-strict mode compares string casts, as it always has
+        // @phpstan-ignore argument.type
         return array_values(array_unique($value, $this->strict ? SORT_REGULAR : SORT_STRING));
     }
 }

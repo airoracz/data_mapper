@@ -695,6 +695,7 @@ class NewFilters2Test extends TestCase
             $obj = new ($dto::class)();
             $obj->id = ''; // Empty string triggers generation
             $data = $this->mapper->toArray($obj);
+            $this->assertIsString($data['id']);
             $uuids[] = $data['id'];
         }
 
@@ -703,7 +704,6 @@ class NewFilters2Test extends TestCase
 
         // All should be valid UUIDs
         foreach ($uuids as $uuid) {
-            $this->assertIsString($uuid);
             $this->assertMatchesRegularExpression('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $uuid);
         }
     }

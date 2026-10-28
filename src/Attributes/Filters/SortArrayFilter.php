@@ -21,6 +21,8 @@ class SortArrayFilter implements FilterInterface
             return $value;
         }
         $arr = $value;
+        // Input is untrusted mixed data; PHP compares mixed values itself, as it always has
+        // @phpstan-ignore argument.type, argument.type
         $this->preserveKeys ? asort($arr, $this->flags) : sort($arr, $this->flags);
         return $arr;
     }
