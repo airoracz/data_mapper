@@ -11,6 +11,7 @@ use PHPUnit\Framework\TestCase;
 use Pocta\DataMapper\Events\DenormalizationErrorEvent;
 use Pocta\DataMapper\Events\PreDenormalizeEvent;
 use Pocta\DataMapper\Exceptions\InvalidInputException;
+use Pocta\DataMapper\Exceptions\ValidationException;
 use Pocta\DataMapper\Mapper;
 use Pocta\DataMapper\MapperOptions;
 
@@ -38,6 +39,28 @@ class InvalidJsonInputTest extends TestCase
         $this->expectException(InvalidInputException::class);
 
         (new Mapper())->fromJson($json, InvalidJsonInputDto::class);
+    }
+
+    public function testInvalidInputIsCaughtAsValidationException(): void
+    {
+        try {
+            (new Mapper())->fromArray([1, 2], InvalidJsonInputDto::class);
+            $this->fail('Expected exception');
+        } catch (ValidationException $e) {
+            $this->assertInstanceOf(InvalidInputException::class, $e);
+            $this->assertSame(['' => 'Data must be an associative array (object), list given'], $e->getErrors());
+            $this->assertSame('Data must be an associative array (object), list given', $e->getMessage());
+        }
+    }
+
+    public function testInvalidCollectionElementIsReportedUnderItsIndex(): void
+    {
+        try {
+            (new Mapper())->fromJsonCollection('[{"name": "a"}, 2]', InvalidJsonInputDto::class);
+            $this->fail('Expected exception');
+        } catch (ValidationException $e) {
+            $this->assertSame(['[1]'], array_keys($e->getErrors()));
+        }
     }
 
     public function testInvalidInputExceptionIsInvalidArgumentExceptionForBackwardCompatibility(): void

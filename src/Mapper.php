@@ -592,7 +592,7 @@ class Mapper
                         'Collection element [%s] must be an associative array (object), %s given',
                         $index,
                         get_debug_type($data)
-                    ));
+                    ), "[{$index}]");
                 }
                 $results[] = $this->fromArray($data, $className);
             }
