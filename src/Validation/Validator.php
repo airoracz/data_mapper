@@ -23,6 +23,18 @@ class Validator
      */
     private array $validationPath = [];
 
+    /**
+     * Per-class reflection: properties with their (not yet instantiated) attributes and methods
+     * carrying #[Callback]. Attribute instances are still created on every validation - validators
+     * may depend on construction time (e.g. DateTimeLessThan('now')).
+     *
+     * @var array<string, array{
+     *     properties: list<array{0: ReflectionProperty, 1: bool, 2: list<\ReflectionAttribute<object>>}>,
+     *     callbacks: list<array{0: ReflectionMethod, 1: list<\ReflectionAttribute<Callback>>}>
+     * }>
+     */
+    private array $classCache = [];
+
     public function __construct(
         private readonly ?ValidatorResolverInterface $validatorResolver = null,
     ) {
@@ -118,39 +130,73 @@ class Validator
      */
     private function validateObjectMembers(object $object, string $pathPrefix, array $activeGroups): array
     {
-        $reflection = new ReflectionClass($object);
+        $classInfo = $this->classCache[$object::class] ??= $this->buildClassInfo($object);
         $errors = [];
 
-        foreach ($reflection->getProperties() as $property) {
-            $propertyErrors = $this->validateProperty($property, $object, $pathPrefix, $activeGroups);
-            $errors = array_merge($errors, $propertyErrors);
+        foreach ($classInfo['properties'] as [$property, $skip, $attributes]) {
+            // No attributes (or #[SkipValidation]) = no errors, initialized or not
+            if ($skip || $attributes === []) {
+                continue;
+            }
+            $propertyErrors = $this->validateProperty($property, $attributes, $object, $pathPrefix, $activeGroups);
+            if ($propertyErrors !== []) {
+                $errors = array_merge($errors, $propertyErrors);
+            }
         }
 
         // Validate methods with #[Callback] attribute
-        foreach ($reflection->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
-            $methodErrors = $this->validateCallbackMethod($method, $object, $pathPrefix, $activeGroups);
-            $errors = array_merge($errors, $methodErrors);
+        foreach ($classInfo['callbacks'] as [$method, $callbackAttributes]) {
+            $methodErrors = $this->validateCallbackMethod($method, $callbackAttributes, $object, $pathPrefix, $activeGroups);
+            if ($methodErrors !== []) {
+                $errors = array_merge($errors, $methodErrors);
+            }
         }
 
         return $errors;
     }
 
     /**
+     * @return array{
+     *     properties: list<array{0: ReflectionProperty, 1: bool, 2: list<\ReflectionAttribute<object>>}>,
+     *     callbacks: list<array{0: ReflectionMethod, 1: list<\ReflectionAttribute<Callback>>}>
+     * }
+     */
+    private function buildClassInfo(object $object): array
+    {
+        $reflection = new ReflectionClass($object);
+        $properties = [];
+        foreach ($reflection->getProperties() as $property) {
+            $properties[] = [
+                $property,
+                $property->getAttributes(SkipValidation::class) !== [],
+                $property->getAttributes(),
+            ];
+        }
+
+        $callbacks = [];
+        foreach ($reflection->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
+            $callbackAttributes = $method->getAttributes(Callback::class);
+            if ($callbackAttributes !== []) {
+                $callbacks[] = [$method, $callbackAttributes];
+            }
+        }
+
+        return ['properties' => $properties, 'callbacks' => $callbacks];
+    }
+
+    /**
      * Validate a single property
      *
+     * @param list<\ReflectionAttribute<object>> $attributes Attributes of the property (cached reflection)
      * @param array<string> $activeGroups Active validation groups
      * @return array<string, string> Array of path => error message
      */
-    private function validateProperty(ReflectionProperty $property, object $object, string $pathPrefix, array $activeGroups): array
+    private function validateProperty(ReflectionProperty $property, array $attributes, object $object, string $pathPrefix, array $activeGroups): array
     {
         $errors = [];
 
-        if (!empty($property->getAttributes(SkipValidation::class))) {
-            return $errors;
-        }
-
         if (!$property->isInitialized($object)) {
-            if ($this->hasActiveValidationAttributes($property, $activeGroups)) {
+            if ($this->hasActiveValidationAttributes($attributes, $activeGroups)) {
                 $fullPath = $pathPrefix !== ''
                     ? $pathPrefix . '.' . $property->getName()
                     : $property->getName();
@@ -168,7 +214,7 @@ class Validator
         // otherwise nested errors would depend on attribute order
         $hasError = false;
 
-        foreach ($property->getAttributes() as $attribute) {
+        foreach ($attributes as $attribute) {
             $instance = $attribute->newInstance();
 
             if ($instance instanceof Valid) {
@@ -236,14 +282,15 @@ class Validator
     /**
      * Validate a method with #[Callback] attribute
      *
+     * @param list<\ReflectionAttribute<Callback>> $callbackAttributes
      * @param array<string> $activeGroups Active validation groups
      * @return array<string, string> Array of path => error message
      */
-    private function validateCallbackMethod(ReflectionMethod $method, object $object, string $pathPrefix, array $activeGroups): array
+    private function validateCallbackMethod(ReflectionMethod $method, array $callbackAttributes, object $object, string $pathPrefix, array $activeGroups): array
     {
         $errors = [];
 
-        foreach ($method->getAttributes(Callback::class) as $attribute) {
+        foreach ($callbackAttributes as $attribute) {
             $instance = $attribute->newInstance();
 
             if (!$this->matchesGroups($instance, $activeGroups)) {
@@ -292,11 +339,12 @@ class Validator
     /**
      * Check if a property has any validation attributes matching the active groups
      *
+     * @param list<\ReflectionAttribute<object>> $attributes
      * @param array<string> $activeGroups Active validation groups
      */
-    private function hasActiveValidationAttributes(ReflectionProperty $property, array $activeGroups): bool
+    private function hasActiveValidationAttributes(array $attributes, array $activeGroups): bool
     {
-        foreach ($property->getAttributes() as $attribute) {
+        foreach ($attributes as $attribute) {
             $instance = $attribute->newInstance();
 
             if ($instance instanceof AssertInterface && $this->matchesGroups($instance, $activeGroups)) {
