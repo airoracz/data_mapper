@@ -186,6 +186,32 @@ class ValidationExceptionTest extends TestCase
         $this->assertArrayHasKey('addresses[0].city', $validation);
         $this->assertArrayHasKey('addresses[1].country', $validation);
     }
+
+    public function testPreviousExceptionIsKept(): void
+    {
+        $previous = new \RuntimeException('root cause');
+
+        $exception = new ValidationException(['name' => 'Required'], $previous);
+
+        $this->assertSame($previous, $exception->getPrevious());
+        $this->assertSame('Required', $exception->getMessage());
+    }
+
+    public function testPreviousIsOptional(): void
+    {
+        $this->assertNull((new ValidationException(['name' => 'Required']))->getPrevious());
+    }
+
+    public function testJsonEncodesAsApiResponse(): void
+    {
+        $exception = new ValidationException(['name' => 'Required', 'items[0].qty' => 'Must be positive']);
+
+        $this->assertInstanceOf(\JsonSerializable::class, $exception);
+        $this->assertSame(
+            json_encode($exception->toApiResponse()),
+            json_encode($exception)
+        );
+    }
 }
 
 class ValidationTestClass

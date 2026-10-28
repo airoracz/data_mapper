@@ -10,20 +10,21 @@ use InvalidArgumentException;
  * Exception thrown when validation fails during denormalization
  * Can contain multiple validation errors
  */
-class ValidationException extends InvalidArgumentException
+class ValidationException extends InvalidArgumentException implements \JsonSerializable
 {
     /** @var array<string, string> */
     private array $errors = [];
 
     /**
      * @param array<string, string> $errors Field name => error message mapping
+     * @param \Throwable|null $previous Original exception, if the validation error wraps one
      */
-    public function __construct(array $errors)
+    public function __construct(array $errors, ?\Throwable $previous = null)
     {
         $this->errors = $errors;
 
         $message = $this->buildMessage($errors);
-        parent::__construct($message);
+        parent::__construct($message, 0, $previous);
     }
 
     /**
@@ -100,5 +101,15 @@ class ValidationException extends InvalidArgumentException
                 'validation' => $validation,
             ],
         ];
+    }
+
+    /**
+     * json_encode() produces the same structure as toApiResponse() with its defaults.
+     *
+     * @return array<string, mixed>
+     */
+    public function jsonSerialize(): array
+    {
+        return $this->toApiResponse();
     }
 }
