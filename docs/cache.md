@@ -229,6 +229,19 @@ $redis->connect('sentinel-host', 26379);
 - Network latency for remote connections
 - Additional infrastructure to maintain
 
+### PSR-16 adapter
+
+Any PSR-16 cache (Symfony Cache, Laravel, ...) can be used through `Psr16Cache` (requires `psr/simple-cache`):
+
+```php
+use Pocta\DataMapper\Cache\Psr16Cache;
+
+$mapper = new Mapper(cache: new Psr16Cache($psr16Pool, prefix: 'data_mapper.', defaultTtl: 3600));
+```
+
+Mapper keys are hashed into PSR-16 safe keys. `clear()` clears the whole pool - use a dedicated pool or
+namespace for the mapper if the pool is shared.
+
 ### 4. NullCache
 Disable caching (for debugging):
 
