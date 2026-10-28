@@ -238,6 +238,24 @@ use Pocta\DataMapper\Cache\NullCache;
 $mapper = new Mapper(cache: new NullCache());
 ```
 
+## Cache Integrity (signing)
+
+Cache entries are unserialized when read. Anyone who can write to the cache storage (the cache directory, the
+Redis server) could otherwise inject arbitrary objects. Pass a secret signing key - entries are HMAC-signed and
+only entries with a valid signature are unserialized:
+
+```php
+$secret = $_ENV['DATA_MAPPER_CACHE_KEY']; // random, kept out of the cache storage
+
+$cache = new FileCache('/var/cache/data-mapper', signingKey: $secret);
+$cache = new RedisCache($redis, prefix: 'app:mapper:', signingKey: $secret);
+```
+
+- Without a key, behaviour is unchanged (unsigned entries).
+- With a key, unsigned or tampered entries are treated as cache misses and rebuilt.
+- `FileCache` files always start with `<?php exit; ?>`, so executing a cache file as PHP (e.g. a cache directory
+  under the web root) does nothing. Files written by older versions are still read.
+
 ## Custom Cache Implementation
 
 You can create custom cache adapters by implementing `CacheInterface`:

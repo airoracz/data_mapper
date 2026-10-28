@@ -10,9 +10,17 @@ use RuntimeException;
  * File-based cache implementation for persistent storage
  * Stores cache entries as serialized PHP files
  * Perfect for production environments where metadata should persist across requests
+ *
+ * Every file starts with an exit guard, so executing it as PHP (e.g. a cache directory under the
+ * web root) does nothing. With a signing key, entries are HMAC-signed and a file is only
+ * unserialized when its signature is valid - writing to the cache directory then does not allow
+ * injecting objects.
  */
 class FileCache implements CacheInterface
 {
+    private const EXIT_GUARD = "<?php exit; ?>\n";
+    private const SIGNATURE_PREFIX = 'sha256:';
+
     private string $cacheDir;
     private int $defaultTtl;
     private string $extension;
@@ -21,12 +29,15 @@ class FileCache implements CacheInterface
      * @param string $cacheDir Directory where cache files will be stored
      * @param int $defaultTtl Default time to live in seconds (0 = no expiration)
      * @param string $extension File extension for cache files
+     * @param string|null $signingKey Secret for HMAC-signing entries (recommended when the cache directory
+     *                                is not fully trusted); null keeps unsigned entries
      * @throws RuntimeException If cache directory cannot be created or is not writable
      */
     public function __construct(
         string $cacheDir,
         int $defaultTtl = 0,
-        string $extension = '.cache.php'
+        string $extension = '.cache.php',
+        private readonly ?string $signingKey = null,
     ) {
         $this->cacheDir = rtrim($cacheDir, DIRECTORY_SEPARATOR);
         $this->defaultTtl = $defaultTtl;
@@ -49,7 +60,7 @@ class FileCache implements CacheInterface
                 return $default;
             }
 
-            $data = @unserialize($content);
+            $data = $this->decode($content);
 
             // Check if data is valid and not expired
             // array_key_exists, not isset: a cached null value is valid
@@ -85,7 +96,7 @@ class FileCache implements CacheInterface
         ];
 
         try {
-            $content = serialize($data);
+            $content = $this->encode($data);
 
             // Ensure directory exists
             $dir = dirname($filename);
@@ -125,7 +136,7 @@ class FileCache implements CacheInterface
                 return false;
             }
 
-            $data = @unserialize($content);
+            $data = $this->decode($content);
 
             if (!is_array($data) || !isset($data['expires'])) {
                 $this->delete($key);
@@ -194,7 +205,7 @@ class FileCache implements CacheInterface
                     continue;
                 }
 
-                $data = @unserialize($content);
+                $data = $this->decode($content);
 
                 // For FileCache, we need to store the original key in the data
                 // Since we can't reliably reverse the hash
@@ -227,7 +238,7 @@ class FileCache implements CacheInterface
                     continue;
                 }
 
-                $data = @unserialize($content);
+                $data = $this->decode($content);
 
                 if (!is_array($data) || !isset($data['expires'])) {
                     @unlink($file);
@@ -290,6 +301,49 @@ class FileCache implements CacheInterface
     /**
      * Get filename for a cache key
      */
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function encode(array $data): string
+    {
+        $payload = serialize($data);
+        $signature = $this->signingKey !== null
+            ? self::SIGNATURE_PREFIX . hash_hmac('sha256', $payload, $this->signingKey) . "\n"
+            : '';
+
+        return self::EXIT_GUARD . $signature . $payload;
+    }
+
+    /**
+     * Decodes file content; returns false for invalid content (callers treat it as a corrupted entry).
+     * Files written before the exit guard was introduced are still read. With a signing key, content
+     * without a valid signature is rejected before unserialize().
+     */
+    private function decode(string $content): mixed
+    {
+        if (str_starts_with($content, self::EXIT_GUARD)) {
+            $content = substr($content, strlen(self::EXIT_GUARD));
+        }
+
+        $signature = null;
+        if (str_starts_with($content, self::SIGNATURE_PREFIX)) {
+            $newline = strpos($content, "\n");
+            if ($newline === false) {
+                return false;
+            }
+            $signature = substr($content, strlen(self::SIGNATURE_PREFIX), $newline - strlen(self::SIGNATURE_PREFIX));
+            $content = substr($content, $newline + 1);
+        }
+
+        if ($this->signingKey !== null) {
+            if ($signature === null || !hash_equals(hash_hmac('sha256', $content, $this->signingKey), $signature)) {
+                return false;
+            }
+        }
+
+        return @unserialize($content);
+    }
+
     private function getFilename(string $key): string
     {
         // Create safe filename from key

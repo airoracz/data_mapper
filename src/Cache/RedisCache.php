@@ -39,16 +39,21 @@ class RedisCache implements CacheInterface
     private int $defaultTtl;
     private bool $isPredis;
 
+    private const SIGNATURE_PREFIX = 'sha256:';
+
     /**
      * @param Redis|object $redis Redis client instance (phpredis or Predis)
      * @param string $prefix Key prefix to avoid collisions
      * @param int $defaultTtl Default time to live in seconds (0 = no expiration)
+     * @param string|null $signingKey Secret for HMAC-signing values; with it, only values carrying a valid
+     *                                signature are unserialized (no object injection via the Redis server)
      * @throws RuntimeException If Redis client is not valid
      */
     public function __construct(
         object $redis,
         string $prefix = 'mapper:',
-        int $defaultTtl = 0
+        int $defaultTtl = 0,
+        private readonly ?string $signingKey = null,
     ) {
         $this->validateRedisClient($redis);
         $this->redis = $redis;
@@ -72,6 +77,13 @@ class RedisCache implements CacheInterface
                 return $default;
             }
 
+            if ($this->signingKey !== null) {
+                $value = $this->verifySignature($value);
+                if ($value === null) {
+                    return $default;
+                }
+            }
+
             $data = @unserialize($value);
 
             // unserialize returns false on error, but also when the serialized value was false
@@ -93,6 +105,9 @@ class RedisCache implements CacheInterface
 
         try {
             $serialized = serialize($value);
+            if ($this->signingKey !== null) {
+                $serialized = self::SIGNATURE_PREFIX . hash_hmac('sha256', $serialized, $this->signingKey) . "\n" . $serialized;
+            }
 
             if ($ttl > 0) {
                 return $this->redisSetEx($prefixedKey, $ttl, $serialized);
@@ -315,6 +330,26 @@ class RedisCache implements CacheInterface
         throw new RuntimeException(
             'Invalid Redis client. Expected Redis (phpredis) or Predis\Client instance.'
         );
+    }
+
+    /**
+     * Returns the payload of a signed value, or null when the signature is missing or invalid.
+     */
+    private function verifySignature(string $value): ?string
+    {
+        if (!str_starts_with($value, self::SIGNATURE_PREFIX) || $this->signingKey === null) {
+            return null;
+        }
+
+        $newline = strpos($value, "\n");
+        if ($newline === false) {
+            return null;
+        }
+
+        $signature = substr($value, strlen(self::SIGNATURE_PREFIX), $newline - strlen(self::SIGNATURE_PREFIX));
+        $payload = substr($value, $newline + 1);
+
+        return hash_equals(hash_hmac('sha256', $payload, $this->signingKey), $signature) ? $payload : null;
     }
 
     // Wrapper methods for phpredis vs Predis compatibility. Both clients share the same method names
