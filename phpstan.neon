@@ -1,5 +1,9 @@
 parameters:
     level: 9
+    # Analyse against the whole supported range, so results do not depend on the PHP version PHPStan runs on
+    phpVersion:
+        min: 80100
+        max: 80599
     paths:
         - src
         - tests

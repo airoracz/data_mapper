@@ -1102,6 +1102,8 @@ class Mapper
         // Map by header names if available
         if ($headers !== null) {
             foreach ($headers as $index => $header) {
+                // PHP would cast a null key to '' anyway (deprecated as of PHP 8.5) - do it explicitly
+                $header ??= '';
                 $propertyName = $columnMapping['byName'][$header] ?? $header;
                 $result[$propertyName] = $row[$index] ?? null;
             }
