@@ -304,12 +304,19 @@ class Validator
                 continue;
             }
 
-            if (is_array($result)) {
-                /** @var array<string, string> $result */
-                foreach ($result as $key => $message) {
-                    $fullPath = $pathPrefix !== '' ? $pathPrefix . '.' . $key : $key;
-                    $errors[$fullPath] = $message;
-                }
+            if (!is_array($result)) {
+                throw new \LogicException(sprintf(
+                    '#[Callback] method %s::%s() must return an array of errors or null, %s returned',
+                    $method->getDeclaringClass()->getShortName(),
+                    $method->getName(),
+                    get_debug_type($result)
+                ));
+            }
+
+            /** @var array<string, string> $result */
+            foreach ($result as $key => $message) {
+                $fullPath = $pathPrefix !== '' ? $pathPrefix . '.' . $key : $key;
+                $errors[$fullPath] = $message;
             }
         }
 
