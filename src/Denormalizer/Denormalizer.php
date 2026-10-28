@@ -286,6 +286,94 @@ class Denormalizer
     }
 
     /**
+     * Merges input data into an existing object (partial update).
+     *
+     * Uses the same per-field rules as denormalize() - keys and paths, filters, hydrators, type
+     * conversion, strict mode - but only for keys present in the input; missing keys leave the
+     * properties untouched. Atomic: all values are converted first and assigned only if there is
+     * no error, so a failed merge leaves the object unchanged.
+     *
+     * @param array<string, mixed> $data
+     *
+     * @throws ValidationException When a value cannot be converted, an unknown key is present in strict
+     *                             mode, or a read-only property would be modified.
+     */
+    public function merge(array $data, object $target, bool $skipNull = false): void
+    {
+        $this->errors = [];
+        $classInfo = $this->getClassInfo($target::class);
+
+        if ($this->strictMode) {
+            $this->validateUnknownKeys($classInfo['reflection'], $classInfo['constructor'], $data);
+        }
+
+        $assignments = [];
+        foreach ($this->getMappableProperties($classInfo['reflection']) as $property) {
+            $field = $this->getFieldInfo($property);
+            $key = $field['path'] ?? $field['jsonKey'];
+
+            if ($field['path'] !== null) {
+                try {
+                    if (!PropertyPathResolver::exists($data, $field['path'])) {
+                        continue;
+                    }
+                    $value = PropertyPathResolver::resolve($data, $field['path']);
+                } catch (InvalidArgumentException $e) {
+                    $this->errors[$this->buildFullFieldPath($field['path'])] =
+                        "Invalid property path syntax for property '{$property->getName()}': {$e->getMessage()}";
+                    continue;
+                }
+            } elseif (array_key_exists($field['jsonKey'], $data)) {
+                $value = $data[$field['jsonKey']];
+            } else {
+                continue;
+            }
+
+            if ($skipNull && $value === null) {
+                continue;
+            }
+
+            if ($property->isReadOnly() && $property->isInitialized($target)) {
+                $this->errors[$this->buildFullFieldPath($key)] = "Property '{$property->getName()}' is read-only";
+                continue;
+            }
+
+            if ($field['hasHydrator']) {
+                $value = $this->invokeHydrator($this->getHydrator($property), $value, $key);
+            }
+            $value = $this->getFilterChain($property)->applyBeforeTyping($value, $appliedFilters);
+
+            $errorsBefore = $this->errors;
+            $isNullable = $this->isPropertyNullable($property);
+            $typedValue = $this->denormalizeValue(
+                $value,
+                $field['typeName'],
+                $this->buildFullFieldPath($key),
+                $isNullable,
+                $field['format'],
+                $field['timezone'],
+                $field['arrayOf'],
+                $field['classType']
+            );
+            $typedValue = $this->getFilterChain($property)->applyAfterTyping($typedValue, $appliedFilters);
+
+            if ($this->errors !== $errorsBefore || ($typedValue === null && !$isNullable)) {
+                continue;
+            }
+
+            $assignments[] = [$property, $typedValue];
+        }
+
+        if ($this->errors !== []) {
+            throw new ValidationException($this->errors);
+        }
+
+        foreach ($assignments as [$property, $typedValue]) {
+            $property->setValue($target, $typedValue);
+        }
+    }
+
+    /**
      * Creates an object using constructor.
      *
      * @template T of object

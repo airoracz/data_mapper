@@ -10,7 +10,6 @@ use Pocta\DataMapper\Cache\ClassMetadataFactory;
 use Pocta\DataMapper\Denormalizer\Denormalizer;
 use Pocta\DataMapper\Normalizer\Normalizer;
 use Pocta\DataMapper\Types\TypeResolver;
-use Pocta\DataMapper\PropertyVisibilityResolver;
 use Pocta\DataMapper\Events\EventDispatcher;
 use Pocta\DataMapper\Events\PreDenormalizeEvent;
 use Pocta\DataMapper\Events\PostDenormalizeEvent;
@@ -476,95 +475,16 @@ class Mapper
         $this->profiler?->start('merge');
         $this->debugger?->logOperation('merge', $data, get_class($target));
 
+        // Root payload for hydrators with HydrationMode::FULL, as in fromArray()
+        $this->typeResolver->setRootPayload($data);
         try {
-            $reflection = new \ReflectionClass($target);
-
-            foreach ($data as $key => $value) {
-                // Skip null values if requested
-                if ($skipNull && $value === null) {
-                    continue;
-                }
-
-                // Try to find property by checking both direct name and MapProperty attribute
-                $property = $this->findPropertyByJsonKey($reflection, $key);
-
-                if ($property === null) {
-                    // Property not found
-                    if ($this->strictMode) {
-                        throw new \Pocta\DataMapper\Exceptions\ValidationException([
-                            $key => "Unknown key '{$key}' is not allowed in strict mode"
-                        ]);
-                    }
-                    continue; // Skip unknown properties in non-strict mode
-                }
-
-                // Known but output-only key - accepted and discarded
-                if (!PropertyVisibilityResolver::isPropertyDenormalizable($property, $this->publicPropertiesOnly)) {
-                    continue;
-                }
-
-                // Denormalize the value
-                $mapping = \Pocta\DataMapper\Attributes\MappingAttributes::of($property);
-                $type = $this->typeResolver->getType(
-                    $mapping->typeName(),
-                    $mapping->format(),
-                    $mapping->timezone(),
-                    $mapping->arrayOf(),
-                    $mapping->classType()
-                );
-                $isNullable = $property->getType()?->allowsNull() ?? true;
-                $typedValue = $type->denormalize($value, $key, $isNullable);
-
-                // Set the value
-                $property->setValue($target, $typedValue);
-            }
+            $this->denormalizer->merge($data, $target, $skipNull);
 
             return $target;
         } finally {
+            $this->typeResolver->setRootPayload(null);
             $this->profiler?->stop('merge');
         }
-    }
-
-    /**
-     * Finds a property by its JSON key (considering MapProperty attributes).
-     *
-     * @param \ReflectionClass<object> $reflection
-     * @param string $jsonKey
-     *
-     * @return \ReflectionProperty|null
-     */
-    private function findPropertyByJsonKey(\ReflectionClass $reflection, string $jsonKey): ?\ReflectionProperty
-    {
-        foreach ($reflection->getProperties() as $property) {
-            if (!PropertyVisibilityResolver::isPropertyKnownForInput($property, $this->publicPropertiesOnly)) {
-                continue;
-            }
-
-            // Check direct match
-            if ($property->getName() === $jsonKey) {
-                return $property;
-            }
-
-            // Check MapProperty name
-            $propertyAttributes = $property->getAttributes(\Pocta\DataMapper\Attributes\MapProperty::class);
-            if (!empty($propertyAttributes)) {
-                $attr = $propertyAttributes[0]->newInstance();
-                if ($attr->name === $jsonKey) {
-                    return $property;
-                }
-            }
-
-            // Check MapDateTimeProperty name
-            $dateTimeAttributes = $property->getAttributes(\Pocta\DataMapper\Attributes\MapDateTimeProperty::class);
-            if (!empty($dateTimeAttributes)) {
-                $attr = $dateTimeAttributes[0]->newInstance();
-                if ($attr->name === $jsonKey) {
-                    return $property;
-                }
-            }
-        }
-
-        return null;
     }
 
     /**
