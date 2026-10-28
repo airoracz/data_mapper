@@ -12,16 +12,20 @@ use Pocta\DataMapper\MapperOptions;
 
 class DeadCodeCharacterizationTest extends TestCase
 {
-    public function testSuppressExceptionDoesNotPreventRethrow(): void
+    public function testErrorEventIsDispatchedAndExceptionRethrown(): void
     {
         $mapper = new Mapper();
-        $mapper->addEventListener(DenormalizationErrorEvent::class, function (DenormalizationErrorEvent $event): void {
-            $event->suppressException();
+        $seen = null;
+        $mapper->addEventListener(DenormalizationErrorEvent::class, function (DenormalizationErrorEvent $event) use (&$seen): void {
+            $seen = $event->exception;
         });
 
-        $this->expectException(ValidationException::class);
-
-        $mapper->fromArray([], DeadCodeRequiredDto::class);
+        try {
+            $mapper->fromArray([], DeadCodeRequiredDto::class);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame($e, $seen);
+        }
     }
 
     public function testDevelopmentPresetEqualsStrictPreset(): void

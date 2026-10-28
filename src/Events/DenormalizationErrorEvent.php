@@ -7,8 +7,8 @@ namespace Pocta\DataMapper\Events;
 use Throwable;
 
 /**
- * Event dispatched when denormalization fails
- * Allows custom error handling or recovery
+ * Event dispatched when denormalization fails - for logging/monitoring.
+ * The exception is always re-thrown afterwards.
  */
 class DenormalizationErrorEvent extends AbstractEvent
 {
@@ -24,25 +24,5 @@ class DenormalizationErrorEvent extends AbstractEvent
         public readonly string $className,
         public readonly ?object $partialObject = null
     ) {
-    }
-
-    private bool $suppressException = false;
-
-    /**
-     * Marks the exception as suppressed. Note: Mapper does not honour this flag - the exception is
-     * always re-thrown (returning null would break the non-nullable return type). Use the event for
-     * logging/monitoring and catch the exception in the caller.
-     */
-    public function suppressException(): void
-    {
-        $this->suppressException = true;
-    }
-
-    /**
-     * Check if exception is suppressed
-     */
-    public function isExceptionSuppressed(): bool
-    {
-        return $this->suppressException;
     }
 }
