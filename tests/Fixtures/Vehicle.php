@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Tests\Fixtures;
 
 use Pocta\DataMapper\Attributes\DiscriminatorMap;
-use Pocta\DataMapper\Attributes\DiscriminatorProperty;
 
 /**
  * Abstract base class for polymorphic vehicle types
@@ -20,7 +19,6 @@ use Pocta\DataMapper\Attributes\DiscriminatorProperty;
 )]
 abstract class Vehicle
 {
-    #[DiscriminatorProperty]
     protected string $type;
 
     protected string $brand;

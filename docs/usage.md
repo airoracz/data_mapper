@@ -575,7 +575,6 @@ The `DiscriminatorMap` attribute enables polymorphic object mapping based on a d
 
 ```php
 use Pocta\DataMapper\Attributes\DiscriminatorMap;
-use Pocta\DataMapper\Attributes\DiscriminatorProperty;
 
 #[DiscriminatorMap(
     property: 'type',
@@ -587,7 +586,6 @@ use Pocta\DataMapper\Attributes\DiscriminatorProperty;
 )]
 abstract class Vehicle
 {
-    #[DiscriminatorProperty]
     protected string $type;
 
     protected string $brand;
