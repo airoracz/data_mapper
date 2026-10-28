@@ -89,12 +89,11 @@ class Denormalizer
     private bool $ownsRootPayload = false;
 
     /**
-     * Stack of class names with depths for cycle detection.
-     * Format: [className => depth] where depth is the nesting level.
-     *
-     * @var array<string, int>
+     * Maximum nesting depth of input data. Input arrays are finite trees, so a class may be nested
+     * in itself (directly or through other classes) at any depth; only a recursive PHP array
+     * reference ($a['x'] = &$a) could recurse forever - the limit cuts it off.
      */
-    private array $classDepthMap = [];
+    public const MAX_DEPTH = 512;
 
     /**
      * Path prefix for nested denormalization (e.g., "addresses[0]" when denormalizing array element).
@@ -204,7 +203,6 @@ class Denormalizer
      * @return T
      *
      * @throws ValidationException
-     * @throws \Pocta\DataMapper\Exceptions\CircularReferenceException
      */
     public function denormalize(array $data, string $className): object
     {
@@ -227,30 +225,16 @@ class Denormalizer
             $this->ownsRootPayload = true;
         }
 
-        // Depth of this call once its payload is pushed (how many denormalize calls deep we are)
-        $currentDepth = count($this->contextStack) + 1;
-
-        // Detect circular references: if this class is already being processed at a SHALLOWER depth,
-        // it's a cycle. If it's at the SAME depth, it's a sibling (e.g., array elements) which is OK.
-        // Checked before any state is pushed, so the exception leaves this instance clean.
-        if (isset($this->classDepthMap[$className]) && $this->classDepthMap[$className] < $currentDepth) {
+        // Checked before any state is pushed, so the exception leaves this instance clean
+        if (count($this->contextStack) >= self::MAX_DEPTH) {
             $this->releaseRootPayloadIfOwned();
-            $stack = array_keys($this->classDepthMap);
-            throw new \Pocta\DataMapper\Exceptions\CircularReferenceException(
-                sprintf(
-                    'Circular reference detected: attempting to denormalize "%s" which is already being processed in the call stack: %s',
-                    $className,
-                    implode(' -> ', array_merge($stack, [$className]))
-                )
+            throw new \Pocta\DataMapper\Exceptions\InvalidInputException(
+                sprintf('Maximum nesting depth of %d exceeded', self::MAX_DEPTH),
+                $this->pathPrefix
             );
         }
 
         $this->contextStack[] = $data;
-
-        // Record the requested class at current depth (before discriminator resolution,
-        // so the same key is removed in finally)
-        $requestedClassName = $className;
-        $this->classDepthMap[$requestedClassName] = $currentDepth;
 
         try {
             // Resolve the actual class to instantiate (handles discriminator mapping)
@@ -283,9 +267,8 @@ class Denormalizer
 
             return $result;
         } finally {
-            // Always clean up stack and depth map
+            // Always clean up the context stack
             array_pop($this->contextStack);
-            unset($this->classDepthMap[$requestedClassName]);
             $this->releaseRootPayloadIfOwned();
         }
     }

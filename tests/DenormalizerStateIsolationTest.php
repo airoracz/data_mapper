@@ -8,7 +8,6 @@ use PHPUnit\Framework\TestCase;
 use Pocta\DataMapper\Attributes\HydrationMode;
 use Pocta\DataMapper\Attributes\MapPropertyWithFunction;
 use Pocta\DataMapper\Denormalizer\Denormalizer;
-use Pocta\DataMapper\Exceptions\CircularReferenceException;
 use Pocta\DataMapper\Exceptions\ValidationException;
 use Pocta\DataMapper\Mapper;
 use Pocta\DataMapper\Types\TypeResolver;
@@ -33,31 +32,26 @@ class DenormalizerStateIsolationTest extends TestCase
         }
     }
 
-    public function testNestedValidationErrorIsReportedAfterCircularReferenceException(): void
+    public function testNestedValidationErrorIsReportedAfterDepthLimitError(): void
     {
         $mapper = new Mapper();
+        $recursive = ['child' => []];
+        $recursive['child'] = &$recursive;
 
         try {
-            $mapper->fromArray(['child' => ['child' => ['child' => []]]], IsolationSelfNested::class);
-            $this->fail('Expected CircularReferenceException');
-        } catch (CircularReferenceException) {
+            $mapper->fromArray($recursive, IsolationSelfNested::class);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException) {
         }
 
-        for ($attempt = 1; $attempt <= 2; $attempt++) {
+        foreach ([1, 2] as $attempt) {
             try {
                 $mapper->fromArray(['leaf' => []], IsolationLeafHolder::class);
-                $this->fail("Attempt {$attempt}: missing leaf.n was accepted after a circular reference error");
+                $this->fail("Attempt {$attempt}: missing leaf.n was accepted after a depth limit error");
             } catch (ValidationException $e) {
                 $this->assertArrayHasKey('leaf.n', $e->getErrors());
             }
         }
-    }
-
-    public function testSelfNestedClassIsStillRejectedAsCircularReference(): void
-    {
-        $this->expectException(CircularReferenceException::class);
-
-        (new Mapper())->fromArray(['child' => ['child' => []]], IsolationSelfNested::class);
     }
 
     public function testDirectDenormalizerCallSeesItsOwnRootPayload(): void
