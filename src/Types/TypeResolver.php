@@ -87,6 +87,7 @@ class TypeResolver
     {
         $normalizer->setPublicPropertiesOnly($this->publicPropertiesOnly);
         $normalizer->setSymmetricPropertyPaths($this->symmetricPropertyPaths);
+        $normalizer->setSkipNullValues($this->skipNullValues);
     }
 
     /**

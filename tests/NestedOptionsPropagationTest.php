@@ -76,6 +76,37 @@ class NestedOptionsPropagationTest extends TestCase
         $this->createMapper(strictMode: true)->fromArray(['inner' => ['secret' => 'x']], NestedOuterDto::class);
     }
 
+    public function testSkipNullValuesAppliesToNestedObject(): void
+    {
+        $result = (new Mapper(new MapperOptions(skipNullValues: true)))->toArray($this->createNullableOuter());
+
+        $this->assertSame(['value' => 'v'], $result['inner']);
+    }
+
+    public function testSkipNullValuesAppliesToArrayOfObjects(): void
+    {
+        $result = (new Mapper(new MapperOptions(skipNullValues: true)))->toArray($this->createNullableOuter());
+
+        $this->assertSame([['value' => 'v']], $result['items']);
+    }
+
+    public function testNullsInArrayOfObjectsAreKeptByDefault(): void
+    {
+        $result = (new Mapper())->toArray($this->createNullableOuter());
+
+        $this->assertSame([['value' => 'v', 'note' => null]], $result['items']);
+        $this->assertSame(['value' => 'v', 'note' => null], $result['inner']);
+    }
+
+    private function createNullableOuter(): NestedNullableOuterDto
+    {
+        $outer = new NestedNullableOuterDto();
+        $outer->inner = new NestedNullableInnerDto();
+        $outer->items = [new NestedNullableInnerDto()];
+
+        return $outer;
+    }
+
     public function testNestedObjectOutputWritesPropertyPath(): void
     {
         $result = $this->createMapper()->toArray($this->createOuter());
@@ -106,5 +137,21 @@ class NestedOuterDto
 
     /** @var NestedInnerDto[] */
     #[MapProperty(type: PropertyType::Array, arrayOf: NestedInnerDto::class)]
+    public array $items = [];
+}
+
+class NestedNullableInnerDto
+{
+    public string $value = 'v';
+
+    public ?string $note = null;
+}
+
+class NestedNullableOuterDto
+{
+    public NestedNullableInnerDto $inner;
+
+    /** @var NestedNullableInnerDto[] */
+    #[MapProperty(arrayOf: NestedNullableInnerDto::class)]
     public array $items = [];
 }

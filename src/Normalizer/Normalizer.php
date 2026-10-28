@@ -38,6 +38,14 @@ class Normalizer
     }
 
     /**
+     * Enable or disable skipping null values in output.
+     */
+    public function setSkipNullValues(bool $skipNullValues): void
+    {
+        $this->skipNullValues = $skipNullValues;
+    }
+
+    /**
      * Enable or disable writing properties with a `path` back into the same nested structure.
      */
     public function setSymmetricPropertyPaths(bool $symmetricPropertyPaths): void
