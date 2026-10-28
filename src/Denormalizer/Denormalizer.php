@@ -31,6 +31,55 @@ class Denormalizer
     private bool $publicPropertiesOnly = false;
 
     /**
+     * Per-class reflection, resolved once. Reflector objects are kept alive here, so their
+     * spl_object_id() is a stable key for the per-field caches below.
+     *
+     * @var array<string, array{
+     *     reflection: ReflectionClass<object>,
+     *     constructor: ?\ReflectionMethod,
+     *     parameters: list<ReflectionParameter>,
+     *     parameterNames: list<string>,
+     *     properties: list<ReflectionProperty>,
+     *     denormalizable: array{0: list<ReflectionProperty>, 1: list<ReflectionProperty>},
+     *     discriminator: ?DiscriminatorMap
+     * }>
+     */
+    private array $classCache = [];
+
+    /**
+     * Attribute-derived mapping settings per property/parameter (keyed by reflector object id).
+     *
+     * @var array<int, array{
+     *     jsonKey: string,
+     *     path: ?string,
+     *     typeName: string,
+     *     format: ?string,
+     *     timezone: ?string,
+     *     arrayOf: ?string,
+     *     classType: ?class-string,
+     *     hasHydrator: bool
+     * }>
+     */
+    private array $fieldCache = [];
+
+    /**
+     * Filter instances per property/parameter, built lazily on first use - exactly where they were
+     * instantiated before, so a misconfigured filter still throws only when its value is processed.
+     *
+     * @var array<int, list<\Pocta\DataMapper\Attributes\Filters\FilterInterface>>
+     */
+    private array $filterCache = [];
+
+    /** @var array<int, \Pocta\DataMapper\Attributes\MapPropertyWithFunction> */
+    private array $hydratorCache = [];
+
+    /** @var array<int, array{0: bool, 1: bool}> Parameter denormalizability per public-only setting */
+    private array $parameterDenormalizableCache = [];
+
+    /** @var array<string, array<int, array<string, true>>> Strict-mode known keys per class and public-only setting */
+    private array $knownKeysCache = [];
+
+    /**
      * Context stack of payloads for nested denormalization levels.
      * Bottom (index 0) = root payload; Top (end) = current payload.
      *
@@ -209,15 +258,17 @@ class Denormalizer
             // Resolve the actual class to instantiate (handles discriminator mapping)
             $className = $this->resolveClassName($className, $data);
 
-            $reflection = new ReflectionClass($className);
-            $constructor = $reflection->getConstructor();
+            $classInfo = $this->getClassInfo($className);
+            /** @var ReflectionClass<T> $reflection */
+            $reflection = $classInfo['reflection'];
+            $constructor = $classInfo['constructor'];
 
             // Validate unknown keys in strict mode
             if ($this->strictMode) {
                 $this->validateUnknownKeys($reflection, $constructor, $data);
             }
 
-            if ($constructor && $constructor->getNumberOfParameters() > 0) {
+            if ($constructor !== null && $classInfo['parameters'] !== []) {
                 $result = $this->createWithConstructor($reflection, $constructor, $data);
             } else {
                 $result = $this->createWithoutConstructor($reflection, $data);
@@ -277,11 +328,9 @@ class Denormalizer
         $errorsBeforeCall = $this->errors;
         $constructorArgs = [];
 
-        foreach ($constructor->getParameters() as $parameter) {
+        foreach ($this->getClassInfo($reflection->getName())['parameters'] as $parameter) {
             // A variadic excluded from input receives no arguments (null would hit its type)
-            if ($parameter->isVariadic()
-                && !PropertyVisibilityResolver::isParameterDenormalizable($parameter, $this->publicPropertiesOnly)
-            ) {
+            if ($parameter->isVariadic() && !$this->isParameterDenormalizable($parameter)) {
                 break;
             }
             $value = $this->getParameterValue($parameter, $data);
@@ -298,7 +347,7 @@ class Denormalizer
         $instance = $reflection->newInstanceArgs($constructorArgs);
 
         // Set remaining properties that are not in constructor
-        $this->setNonConstructorProperties($reflection, $instance, $data, $constructor->getParameters());
+        $this->setNonConstructorProperties($reflection, $instance, $data);
 
         return $instance;
     }
@@ -334,16 +383,13 @@ class Denormalizer
      */
     private function getParameterValue(ReflectionParameter $parameter, array $data): mixed
     {
-        if (!PropertyVisibilityResolver::isParameterDenormalizable($parameter, $this->publicPropertiesOnly)) {
+        if (!$this->isParameterDenormalizable($parameter)) {
             return $this->getUnmappableParameterValue($parameter);
         }
 
-        // Check for MapDateTimeProperty first, then MapProperty
-        $dateTimeAttributes = $parameter->getAttributes(MapDateTimeProperty::class);
-        $propertyAttributes = $parameter->getAttributes(MapProperty::class);
-
-        $jsonKey = $this->getJsonKeyFromParameter($parameter, $dateTimeAttributes, $propertyAttributes);
-        $path = $this->getPathFromParameter($dateTimeAttributes, $propertyAttributes);
+        $field = $this->getFieldInfo($parameter);
+        $jsonKey = $field['jsonKey'];
+        $path = $field['path'];
 
         // Use PropertyPathResolver if path is specified
         if ($path !== null) {
@@ -363,8 +409,7 @@ class Denormalizer
 
         if (!$hasKey) {
             // If MapPropertyWithFunction present, compute value even when key is missing
-            $hasHydrator = !empty($parameter->getAttributes(\Pocta\DataMapper\Attributes\MapPropertyWithFunction::class));
-            if (!$hasHydrator) {
+            if (!$field['hasHydrator']) {
                 if ($parameter->isDefaultValueAvailable()) {
                     return $parameter->getDefaultValue();
                 }
@@ -386,18 +431,24 @@ class Denormalizer
         }
 
         // Apply hydrator and filters BEFORE type denormalization
-        $value = $this->applyHydratorToParameter($parameter, $value, $path ?? $jsonKey);
-        $value = $this->applyFiltersToParameter($parameter, $value);
-        $typeName = $this->getParameterTypeFromAttributes($parameter, $dateTimeAttributes, $propertyAttributes);
-        $format = $this->getFormatFromParameter($dateTimeAttributes);
-        $timezone = $this->getTimezoneFromParameter($dateTimeAttributes);
-        $arrayOf = $this->getArrayOfFromParameter($dateTimeAttributes, $propertyAttributes);
-        $classType = $this->getClassTypeFromParameter($propertyAttributes);
+        if ($field['hasHydrator']) {
+            $value = $this->invokeHydrator($this->getHydrator($parameter), $value, $path ?? $jsonKey);
+        }
+        $value = $this->applyFilters($parameter, $value);
 
         $fullPath = $this->buildFullFieldPath($path ?? $jsonKey);
-        $typed = $this->denormalizeValue($value, $typeName, $fullPath, $parameter->allowsNull(), $format, $timezone, $arrayOf, $classType);
+        $typed = $this->denormalizeValue(
+            $value,
+            $field['typeName'],
+            $fullPath,
+            $parameter->allowsNull(),
+            $field['format'],
+            $field['timezone'],
+            $field['arrayOf'],
+            $field['classType']
+        );
         // Apply filters AFTER type denormalization
-        $typed = $this->applyFiltersToParameter($parameter, $typed);
+        $typed = $this->applyFilters($parameter, $typed);
         return $typed;
     }
 
@@ -432,12 +483,9 @@ class Denormalizer
      */
     private function setPropertyValue(ReflectionProperty $property, object $instance, array $data): void
     {
-        // Check for MapDateTimeProperty first, then MapProperty
-        $dateTimeAttributes = $property->getAttributes(MapDateTimeProperty::class);
-        $propertyAttributes = $property->getAttributes(MapProperty::class);
-
-        $jsonKey = $this->getJsonKeyFromProperty($property, $dateTimeAttributes, $propertyAttributes);
-        $path = $this->getPathFromProperty($dateTimeAttributes, $propertyAttributes);
+        $field = $this->getFieldInfo($property);
+        $jsonKey = $field['jsonKey'];
+        $path = $field['path'];
 
         // Use PropertyPathResolver if path is specified
         if ($path !== null) {
@@ -457,8 +505,7 @@ class Denormalizer
 
         if (!$hasKey) {
             // If MapPropertyWithFunction present, compute value even when key is missing
-            $hasHydrator = !empty($property->getAttributes(\Pocta\DataMapper\Attributes\MapPropertyWithFunction::class));
-            if (!$hasHydrator) {
+            if (!$field['hasHydrator']) {
                 // For properties (not in constructor), missing data is not an error unless required
                 // Check if property is required (not nullable and no default value)
                 $isNullable = $this->isPropertyNullable($property);
@@ -472,20 +519,26 @@ class Denormalizer
         }
 
         // Apply hydrator and filters BEFORE type denormalization
-        $value = $this->applyHydratorToProperty($property, $value, $path ?? $jsonKey);
-        $value = $this->applyFiltersToProperty($property, $value);
-        $typeName = $this->getPropertyTypeFromAttributes($property, $dateTimeAttributes, $propertyAttributes);
+        if ($field['hasHydrator']) {
+            $value = $this->invokeHydrator($this->getHydrator($property), $value, $path ?? $jsonKey);
+        }
+        $value = $this->applyFilters($property, $value);
         $isNullable = $this->isPropertyNullable($property);
-        $format = $this->getFormatFromProperty($dateTimeAttributes);
-        $timezone = $this->getTimezoneFromProperty($dateTimeAttributes);
-        $arrayOf = $this->getArrayOfFromProperty($dateTimeAttributes, $propertyAttributes);
-        $classType = $this->getClassTypeFromProperty($propertyAttributes);
 
         $fullPath = $this->buildFullFieldPath($path ?? $jsonKey);
         $errorsBefore = $this->errors;
-        $typedValue = $this->denormalizeValue($value, $typeName, $fullPath, $isNullable, $format, $timezone, $arrayOf, $classType);
+        $typedValue = $this->denormalizeValue(
+            $value,
+            $field['typeName'],
+            $fullPath,
+            $isNullable,
+            $field['format'],
+            $field['timezone'],
+            $field['arrayOf'],
+            $field['classType']
+        );
         // Apply filters AFTER type denormalization
-        $typedValue = $this->applyFiltersToProperty($property, $typedValue);
+        $typedValue = $this->applyFilters($property, $typedValue);
 
         // Don't set the value if any error was added or changed during denormalization.
         // Value comparison (not just count) is required because the nested denormalize/
@@ -517,10 +570,7 @@ class Denormalizer
      */
     private function getMappableProperties(ReflectionClass $reflection): array
     {
-        return array_values(array_filter(
-            $reflection->getProperties(),
-            fn(ReflectionProperty $property) => PropertyVisibilityResolver::isPropertyDenormalizable($property, $this->publicPropertiesOnly)
-        ));
+        return $this->getClassInfo($reflection->getName())['denormalizable'][(int) $this->publicPropertiesOnly];
     }
 
     /**
@@ -529,18 +579,10 @@ class Denormalizer
      * @param ReflectionClass<object> $reflection
      * @param object $instance
      * @param array<string, mixed> $data
-     * @param array<int, ReflectionParameter> $constructorParams
      */
-    private function setNonConstructorProperties(
-        ReflectionClass $reflection,
-        object $instance,
-        array $data,
-        array $constructorParams
-    ): void {
-        $constructorParamNames = array_map(
-            fn(ReflectionParameter $param) => $param->getName(),
-            $constructorParams
-        );
+    private function setNonConstructorProperties(ReflectionClass $reflection, object $instance, array $data): void
+    {
+        $constructorParamNames = $this->getClassInfo($reflection->getName())['parameterNames'];
 
         foreach ($this->getMappableProperties($reflection) as $property) {
             // Skip if property is promoted (already set via constructor)
@@ -902,65 +944,148 @@ class Denormalizer
     }
 
     /**
-     * Applies all filter attributes present on the parameter to the incoming raw value.
-     * Filters are applied in the order they are declared on the parameter.
-     *
-     * @param ReflectionParameter $parameter
-     * @param mixed $value
-     * @return mixed
+     * Applies filter attributes of the property/parameter, in declaration order.
+     * Instances are created on first use (all attributes are instantiated, as before) and reused.
      */
-    private function applyFiltersToParameter(ReflectionParameter $parameter, mixed $value): mixed
+    private function applyFilters(ReflectionProperty|ReflectionParameter $reflector, mixed $value): mixed
     {
-        foreach ($parameter->getAttributes() as $attribute) {
-            $instance = $attribute->newInstance();
-            if ($instance instanceof \Pocta\DataMapper\Attributes\Filters\FilterInterface) {
-                $value = $instance->apply($value);
+        $id = spl_object_id($reflector);
+        if (!isset($this->filterCache[$id])) {
+            $filters = [];
+            foreach ($reflector->getAttributes() as $attribute) {
+                $instance = $attribute->newInstance();
+                if ($instance instanceof \Pocta\DataMapper\Attributes\Filters\FilterInterface) {
+                    $filters[] = $instance;
+                }
             }
+            $this->filterCache[$id] = $filters;
         }
+
+        foreach ($this->filterCache[$id] as $filter) {
+            $value = $filter->apply($value);
+        }
+
         return $value;
+    }
+
+    private function getHydrator(ReflectionProperty|ReflectionParameter $reflector): \Pocta\DataMapper\Attributes\MapPropertyWithFunction
+    {
+        $id = spl_object_id($reflector);
+        if (!isset($this->hydratorCache[$id])) {
+            /** @var \Pocta\DataMapper\Attributes\MapPropertyWithFunction $hydrator */
+            $hydrator = $reflector->getAttributes(\Pocta\DataMapper\Attributes\MapPropertyWithFunction::class)[0]->newInstance();
+            $this->hydratorCache[$id] = $hydrator;
+        }
+
+        return $this->hydratorCache[$id];
     }
 
     /**
-     * Applies all filter attributes present on the property to the incoming raw value.
-     * Filters are applied in the order they are declared on the property.
+     * Mapping settings derived from #[MapDateTimeProperty] / #[MapProperty] (the former has priority).
      *
-     * @param ReflectionProperty $property
-     * @param mixed $value
-     * @return mixed
+     * @return array{
+     *     jsonKey: string,
+     *     path: ?string,
+     *     typeName: string,
+     *     format: ?string,
+     *     timezone: ?string,
+     *     arrayOf: ?string,
+     *     classType: ?class-string,
+     *     hasHydrator: bool
+     * }
      */
-    private function applyFiltersToProperty(ReflectionProperty $property, mixed $value): mixed
+    private function getFieldInfo(ReflectionProperty|ReflectionParameter $reflector): array
     {
-        foreach ($property->getAttributes() as $attribute) {
-            $instance = $attribute->newInstance();
-            if ($instance instanceof \Pocta\DataMapper\Attributes\Filters\FilterInterface) {
-                $value = $instance->apply($value);
-            }
+        $id = spl_object_id($reflector);
+        if (isset($this->fieldCache[$id])) {
+            return $this->fieldCache[$id];
         }
-        return $value;
+
+        $dateTimeAttributes = $reflector->getAttributes(MapDateTimeProperty::class);
+        $propertyAttributes = $reflector->getAttributes(MapProperty::class);
+
+        if ($reflector instanceof ReflectionParameter) {
+            $info = [
+                'jsonKey' => $this->getJsonKeyFromParameter($reflector, $dateTimeAttributes, $propertyAttributes),
+                'path' => $this->getPathFromParameter($dateTimeAttributes, $propertyAttributes),
+                'typeName' => $this->getParameterTypeFromAttributes($reflector, $dateTimeAttributes, $propertyAttributes),
+                'format' => $this->getFormatFromParameter($dateTimeAttributes),
+                'timezone' => $this->getTimezoneFromParameter($dateTimeAttributes),
+                'arrayOf' => $this->getArrayOfFromParameter($dateTimeAttributes, $propertyAttributes),
+                'classType' => $this->getClassTypeFromParameter($propertyAttributes),
+            ];
+        } else {
+            $info = [
+                'jsonKey' => $this->getJsonKeyFromProperty($reflector, $dateTimeAttributes, $propertyAttributes),
+                'path' => $this->getPathFromProperty($dateTimeAttributes, $propertyAttributes),
+                'typeName' => $this->getPropertyTypeFromAttributes($reflector, $dateTimeAttributes, $propertyAttributes),
+                'format' => $this->getFormatFromProperty($dateTimeAttributes),
+                'timezone' => $this->getTimezoneFromProperty($dateTimeAttributes),
+                'arrayOf' => $this->getArrayOfFromProperty($dateTimeAttributes, $propertyAttributes),
+                'classType' => $this->getClassTypeFromProperty($propertyAttributes),
+            ];
+        }
+        $info['hasHydrator'] = $reflector->getAttributes(\Pocta\DataMapper\Attributes\MapPropertyWithFunction::class) !== [];
+
+        return $this->fieldCache[$id] = $info;
     }
 
-    /** Applies MapPropertyWithFunction attribute for parameter (pre-denormalization), if present. */
-    private function applyHydratorToParameter(ReflectionParameter $parameter, mixed $value, string $jsonKey): mixed
+    private function isParameterDenormalizable(ReflectionParameter $parameter): bool
     {
-        $attrs = $parameter->getAttributes(\Pocta\DataMapper\Attributes\MapPropertyWithFunction::class);
-        if (empty($attrs)) {
-            return $value;
-        }
-        /** @var \Pocta\DataMapper\Attributes\MapPropertyWithFunction $cfg */
-        $cfg = $attrs[0]->newInstance();
-        return $this->invokeHydrator($cfg, $value, $jsonKey);
+        $id = spl_object_id($parameter);
+        $this->parameterDenormalizableCache[$id] ??= [
+            PropertyVisibilityResolver::isParameterDenormalizable($parameter, false),
+            PropertyVisibilityResolver::isParameterDenormalizable($parameter, true),
+        ];
+
+        return $this->parameterDenormalizableCache[$id][(int) $this->publicPropertiesOnly];
     }
 
-    /** Applies MapPropertyWithFunction attribute for property (pre-denormalization), if present. */
-    private function applyHydratorToProperty(ReflectionProperty $property, mixed $value, string $jsonKey): mixed
+    /**
+     * Reflection of a class, resolved once per Denormalizer instance.
+     *
+     * @return array{
+     *     reflection: ReflectionClass<object>,
+     *     constructor: ?\ReflectionMethod,
+     *     parameters: list<ReflectionParameter>,
+     *     parameterNames: list<string>,
+     *     properties: list<ReflectionProperty>,
+     *     denormalizable: array{0: list<ReflectionProperty>, 1: list<ReflectionProperty>},
+     *     discriminator: ?DiscriminatorMap
+     * }
+     */
+    private function getClassInfo(string $className): array
     {
-        $attrs = $property->getAttributes(\Pocta\DataMapper\Attributes\MapPropertyWithFunction::class);
-        if (empty($attrs)) {
-            return $value;
+        if (isset($this->classCache[$className])) {
+            return $this->classCache[$className];
         }
-        /** @var \Pocta\DataMapper\Attributes\MapPropertyWithFunction $cfg */
-        $cfg = $attrs[0]->newInstance();
-        return $this->invokeHydrator($cfg, $value, $jsonKey);
+
+        /** @var class-string $className */
+        $reflection = new ReflectionClass($className);
+        $constructor = $reflection->getConstructor();
+        $parameters = $constructor !== null ? $constructor->getParameters() : [];
+        $properties = $reflection->getProperties();
+
+        $discriminatorAttributes = $reflection->getAttributes(DiscriminatorMap::class);
+
+        return $this->classCache[$className] = [
+            'reflection' => $reflection,
+            'constructor' => $constructor,
+            'parameters' => $parameters,
+            'parameterNames' => array_map(fn(ReflectionParameter $p) => $p->getName(), $parameters),
+            'properties' => $properties,
+            'denormalizable' => [
+                array_values(array_filter(
+                    $properties,
+                    fn(ReflectionProperty $p) => PropertyVisibilityResolver::isPropertyDenormalizable($p, false)
+                )),
+                array_values(array_filter(
+                    $properties,
+                    fn(ReflectionProperty $p) => PropertyVisibilityResolver::isPropertyDenormalizable($p, true)
+                )),
+            ],
+            'discriminator' => $discriminatorAttributes !== [] ? $discriminatorAttributes[0]->newInstance() : null,
+        ];
     }
 
     /** Invokes configured hydrator function with payload selected by mode. */
@@ -1027,15 +1152,11 @@ class Denormalizer
      */
     private function resolveClassName(string $className, array $data): string
     {
-        $reflection = new ReflectionClass($className);
-        $discriminatorAttributes = $reflection->getAttributes(DiscriminatorMap::class);
+        $discriminator = $this->getClassInfo($className)['discriminator'];
 
-        if (empty($discriminatorAttributes)) {
+        if ($discriminator === null) {
             return $className;
         }
-
-        /** @var DiscriminatorMap $discriminator */
-        $discriminator = $discriminatorAttributes[0]->newInstance();
 
         // Check if discriminator property exists in data
         if (!array_key_exists($discriminator->property, $data)) {
@@ -1085,46 +1206,49 @@ class Denormalizer
         ?\ReflectionMethod $constructor,
         array $data
     ): void {
-        $knownKeys = [];
-
-        // Collect keys from constructor parameters
-        if ($constructor) {
-            foreach ($constructor->getParameters() as $parameter) {
-                if (!PropertyVisibilityResolver::isParameterDenormalizable($parameter, $this->publicPropertiesOnly)) {
-                    continue;
-                }
-                $dateTimeAttributes = $parameter->getAttributes(MapDateTimeProperty::class);
-                $propertyAttributes = $parameter->getAttributes(MapProperty::class);
-                $path = $this->getPathFromParameter($dateTimeAttributes, $propertyAttributes);
-                $knownKeys[] = $path !== null
-                    ? $this->getPathRootKey($path)
-                    : $this->getJsonKeyFromParameter($parameter, $dateTimeAttributes, $propertyAttributes);
-            }
-        }
-
-        // Collect keys from properties (including output-only ones - accepted and discarded)
-        foreach ($reflection->getProperties() as $property) {
-            if (!PropertyVisibilityResolver::isPropertyKnownForInput($property, $this->publicPropertiesOnly)) {
-                continue;
-            }
-            $dateTimeAttributes = $property->getAttributes(MapDateTimeProperty::class);
-            $propertyAttributes = $property->getAttributes(MapProperty::class);
-            $path = $this->getPathFromProperty($dateTimeAttributes, $propertyAttributes);
-            $jsonKey = $path !== null
-                ? $this->getPathRootKey($path)
-                : $this->getJsonKeyFromProperty($property, $dateTimeAttributes, $propertyAttributes);
-            if (!in_array($jsonKey, $knownKeys, true)) {
-                $knownKeys[] = $jsonKey;
-            }
-        }
+        $knownKeys = $this->knownKeysCache[$reflection->getName()][(int) $this->publicPropertiesOnly]
+            ??= $this->collectKnownKeys($reflection, $constructor);
 
         // Check for unknown keys
         foreach (array_keys($data) as $inputKey) {
-            if (!in_array((string) $inputKey, $knownKeys, true)) {
+            if (!isset($knownKeys[(string) $inputKey])) {
                 $fullPath = $this->buildFullFieldPath((string) $inputKey);
                 $this->errors[$fullPath] = "Unknown key '{$inputKey}' at path '{$fullPath}' is not allowed in strict mode";
             }
         }
+    }
+
+    /**
+     * Input keys accepted in strict mode for a class under the current public-only setting.
+     *
+     * @param ReflectionClass<object> $reflection
+     * @return array<string, true>
+     */
+    private function collectKnownKeys(ReflectionClass $reflection, ?\ReflectionMethod $constructor): array
+    {
+        $knownKeys = [];
+
+        // Collect keys from constructor parameters
+        if ($constructor !== null) {
+            foreach ($this->getClassInfo($reflection->getName())['parameters'] as $parameter) {
+                if (!$this->isParameterDenormalizable($parameter)) {
+                    continue;
+                }
+                $field = $this->getFieldInfo($parameter);
+                $knownKeys[$field['path'] !== null ? $this->getPathRootKey($field['path']) : $field['jsonKey']] = true;
+            }
+        }
+
+        // Collect keys from properties (including output-only ones - accepted and discarded)
+        foreach ($this->getClassInfo($reflection->getName())['properties'] as $property) {
+            if (!PropertyVisibilityResolver::isPropertyKnownForInput($property, $this->publicPropertiesOnly)) {
+                continue;
+            }
+            $field = $this->getFieldInfo($property);
+            $knownKeys[$field['path'] !== null ? $this->getPathRootKey($field['path']) : $field['jsonKey']] = true;
+        }
+
+        return $knownKeys;
     }
 
     /**
