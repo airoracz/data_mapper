@@ -213,16 +213,19 @@ The `arrayOf` attribute supports scalar types (int, string, float, bool) and obj
 **For arrays of DateTime objects**, use the class name directly:
 ```php
 // For arrays of DateTime objects, use class-string
-#[MapProperty(type: PropertyType::Array, arrayOf: \DateTime::class)]
+#[MapProperty(arrayOf: \DateTime::class)]
 public array $dates;
 ```
+
+> `type: PropertyType::Array` is only needed when the property has no `array` PHP type (e.g. an untyped
+> `public $items`). With `public array $items`, `arrayOf:` alone is enough - for properties and constructor
+> parameters, in both directions.
 
 **Example with scalar arrays:**
 
 ```php
 use Pocta\DataMapper\Attributes\ArrayElementType;
 use Pocta\DataMapper\Attributes\MapProperty;
-use Pocta\DataMapper\Attributes\PropertyType;
 
 class Product
 {
@@ -231,23 +234,23 @@ class Product
         public string $name,
 
         // Array of integers - using ArrayElementType enum (recommended)
-        #[MapProperty(type: PropertyType::Array, arrayOf: ArrayElementType::Int)]
+        #[MapProperty(arrayOf: ArrayElementType::Int)]
         public array $scores,
 
         // Array of strings - using ArrayElementType enum (recommended)
-        #[MapProperty(type: PropertyType::Array, arrayOf: ArrayElementType::String)]
+        #[MapProperty(arrayOf: ArrayElementType::String)]
         public array $tags,
 
         // Array of floats - using ArrayElementType enum (recommended)
-        #[MapProperty(type: PropertyType::Array, arrayOf: ArrayElementType::Float)]
+        #[MapProperty(arrayOf: ArrayElementType::Float)]
         public array $prices,
 
         // Array of booleans - using ArrayElementType enum (recommended)
-        #[MapProperty(type: PropertyType::Array, arrayOf: ArrayElementType::Bool)]
+        #[MapProperty(arrayOf: ArrayElementType::Bool)]
         public array $flags,
 
         // Backward compatibility - string type names still work
-        #[MapProperty(type: PropertyType::Array, arrayOf: 'int')]
+        #[MapProperty(arrayOf: 'int')]
         public array $ratings = []
     ) {}
 }
