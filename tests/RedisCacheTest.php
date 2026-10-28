@@ -99,6 +99,21 @@ class RedisCacheTest extends TestCase
         $this->assertFalse($this->cache->delete('nonexistent'));
     }
 
+    public function testClearSizeAndKeysAcrossManyScanBatches(): void
+    {
+        for ($i = 0; $i < 2500; $i++) {
+            $this->cache->set("bulk{$i}", $i);
+        }
+        $this->redis->set('foreign:untouched', 'x');
+
+        $this->assertSame(2500, $this->cache->size());
+        $this->assertCount(2500, array_unique($this->cache->keys()));
+        $this->assertTrue($this->cache->clear());
+        $this->assertSame(0, $this->cache->size());
+        $this->assertSame('x', $this->redis->get('foreign:untouched'));
+        $this->redis->del('foreign:untouched');
+    }
+
     public function testClear(): void
     {
         $this->cache->set('key1', 'value1');

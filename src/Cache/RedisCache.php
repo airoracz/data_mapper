@@ -41,6 +41,9 @@ class RedisCache implements CacheInterface
 
     private const SIGNATURE_PREFIX = 'sha256:';
 
+    /** Keys requested per SCAN round-trip */
+    private const SCAN_COUNT = 1000;
+
     /**
      * @param Redis|object $redis Redis client instance (phpredis or Predis)
      * @param string $prefix Key prefix to avoid collisions
@@ -352,6 +355,15 @@ class RedisCache implements CacheInterface
         return hash_equals(hash_hmac('sha256', $payload, $this->signingKey), $signature) ? $payload : null;
     }
 
+    /**
+     * phpredis SCAN round-trip; the iterator is updated by reference (0 when the iteration is complete).
+     */
+    private function phpredisScan(?int &$iterator, string $pattern): mixed
+    {
+        /** @phpstan-ignore method.notFound */
+        return $this->redis->scan($iterator, $pattern, self::SCAN_COUNT);
+    }
+
     // Wrapper methods for phpredis vs Predis compatibility. Both clients share the same method names
     // (PHP method names are case-insensitive); only return types differ for the writes below.
 
@@ -398,14 +410,46 @@ class RedisCache implements CacheInterface
     }
 
     /**
+     * Lists keys matching the pattern with SCAN - unlike KEYS it does not block the server
+     * while walking the whole keyspace. SCAN may return a key more than once, so keys are deduplicated.
+     *
      * @return array<int, string>
      */
     private function redisKeys(string $pattern): array
     {
-        /** @phpstan-ignore method.notFound */
-        $keys = $this->redis->keys($pattern);
+        $keys = [];
 
-        return is_array($keys) ? array_values(array_filter($keys, 'is_string')) : [];
+        if ($this->isPredis) {
+            $cursor = '0';
+            do {
+                /** @phpstan-ignore method.notFound */
+                $result = $this->redis->scan($cursor, ['MATCH' => $pattern, 'COUNT' => self::SCAN_COUNT]);
+                if (!is_array($result) || !isset($result[0], $result[1]) || !is_array($result[1])) {
+                    break;
+                }
+                $cursor = (string) $result[0];
+                foreach ($result[1] as $key) {
+                    if (is_string($key)) {
+                        $keys[$key] = true;
+                    }
+                }
+            } while ($cursor !== '0');
+        } else {
+            // phpredis: the iterator is passed by reference and becomes 0 when the iteration is complete
+            $iterator = null;
+            do {
+                $batch = $this->phpredisScan($iterator, $pattern);
+                if (is_array($batch)) {
+                    foreach ($batch as $key) {
+                        if (is_string($key)) {
+                            $keys[$key] = true;
+                        }
+                    }
+                }
+            } while (is_int($iterator) && $iterator > 0);
+        }
+
+        return array_keys($keys);
     }
 
     private function redisTtl(string $key): int

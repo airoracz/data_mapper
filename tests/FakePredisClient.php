@@ -79,12 +79,36 @@ class FakePredisClient
         return $deleted;
     }
 
+    public bool $allowKeysCommand = true;
+
     /** @return array<int, string> */
     public function keys(string $pattern): array
     {
         $this->guard();
+        if (!$this->allowKeysCommand) {
+            throw new \LogicException('KEYS blocks the server and must not be used');
+        }
         $prefix = rtrim($pattern, '*');
         return array_values(array_filter(array_keys($this->data), fn(string $k) => str_starts_with($k, $prefix)));
+    }
+
+    /**
+     * Predis-style SCAN: returns [nextCursor, keys]; cursor "0" ends the iteration.
+     *
+     * @param array{MATCH?: string, COUNT?: int} $options
+     * @return array{0: string, 1: array<int, string>}
+     */
+    public function scan(int|string $cursor, array $options = []): array
+    {
+        $this->guard();
+        $prefix = rtrim($options['MATCH'] ?? '*', '*');
+        $matching = array_values(array_filter(array_keys($this->data), fn(string $k) => str_starts_with($k, $prefix)));
+        $count = $options['COUNT'] ?? 10;
+        $offset = (int) $cursor;
+        $batch = array_slice($matching, $offset, $count);
+        $next = $offset + $count >= count($matching) ? '0' : (string) ($offset + $count);
+
+        return [$next, $batch];
     }
 
     public function ttl(string $key): int

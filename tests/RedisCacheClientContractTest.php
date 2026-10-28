@@ -71,6 +71,21 @@ class RedisCacheClientContractTest extends TestCase
         $this->assertTrue($this->cache->clear());
     }
 
+    public function testKeyListingUsesScanNotKeys(): void
+    {
+        $this->client->allowKeysCommand = false;
+        for ($i = 0; $i < 25; $i++) {
+            $this->cache->set("k{$i}", $i);
+        }
+        $this->client->data['other:z'] = serialize(3);
+
+        $this->assertSame(25, $this->cache->size());
+        $this->assertCount(25, $this->cache->keys());
+        $this->assertTrue($this->cache->clear());
+        $this->assertSame(0, $this->cache->size());
+        $this->assertArrayHasKey('other:z', $this->client->data);
+    }
+
     public function testExpirePersistAndCounters(): void
     {
         $this->cache->set('n', 1);
