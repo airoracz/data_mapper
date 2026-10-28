@@ -256,6 +256,10 @@ class Denormalizer
                 $result = $this->createWithoutConstructor($reflection, $data);
             }
 
+            if ($result instanceof \Pocta\DataMapper\ProvidedFieldsInterface) {
+                $result->markProvidedFields($this->collectProvidedFields($reflection, $data));
+            }
+
             // Only throw for errors produced inside this invocation (including
             // its descendants). Errors present in $errorsBeforeCall belong to a
             // parent invocation on the same shared denormalizer and must not be
@@ -371,6 +375,43 @@ class Denormalizer
         foreach ($assignments as [$property, $typedValue]) {
             $property->setValue($target, $typedValue);
         }
+
+        if ($target instanceof \Pocta\DataMapper\ProvidedFieldsInterface) {
+            $target->markProvidedFields(array_map(
+                fn(array $assignment): string => $assignment[0]->getName(),
+                $assignments
+            ));
+        }
+    }
+
+    /**
+     * Names of the mappable properties whose key (or path) is present in the input data.
+     *
+     * @param ReflectionClass<object> $reflection
+     * @param array<string, mixed> $data
+     * @return list<string>
+     */
+    private function collectProvidedFields(ReflectionClass $reflection, array $data): array
+    {
+        $provided = [];
+        foreach ($this->getMappableProperties($reflection) as $property) {
+            $field = $this->getFieldInfo($property);
+            if ($field['path'] === null) {
+                $present = array_key_exists($field['jsonKey'], $data);
+            } else {
+                try {
+                    $present = PropertyPathResolver::exists($data, $field['path']);
+                } catch (InvalidArgumentException) {
+                    $present = false;
+                }
+            }
+
+            if ($present) {
+                $provided[] = $property->getName();
+            }
+        }
+
+        return $provided;
     }
 
     /**
@@ -582,6 +623,11 @@ class Denormalizer
                 if (!$isNullable && !$hasDefault && $this->throwOnMissingData) {
                     $fullPath = $this->buildFullFieldPath($path ?? $jsonKey);
                     $this->errors[$fullPath] = "Missing required property '{$property->getName()}' at path '{$fullPath}'";
+                }
+                // A missing nullable property without a default gets null (as a nullable constructor
+                // parameter does) instead of staying uninitialized and failing on first read
+                if ($isNullable && !$hasDefault) {
+                    $property->setValue($instance, null);
                 }
                 return;
             }

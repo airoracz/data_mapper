@@ -703,6 +703,44 @@ $mapper->fromArray($data, Vehicle::class);
 - Notification systems with various notification types
 - Multi-tenant systems with different entity variants
 
+## Partial Updates (PATCH): sent vs. not sent
+
+With nullable fields (`?string $note = null`) a DTO alone cannot tell "the client did not send `note`" from
+"the client sent `note: null`" (= clear the value). Implement `ProvidedFieldsInterface` with the `ProvidedFields`
+trait and the mapper records which properties were present in the input:
+
+```php
+use Pocta\DataMapper\ProvidedFields;
+use Pocta\DataMapper\ProvidedFieldsInterface;
+
+final class UpdateActivityRequest implements ProvidedFieldsInterface
+{
+    use ProvidedFields;
+
+    public ?string $name = null;
+    public ?string $note = null;
+
+    public function toApiPayload(): array
+    {
+        $data = [];
+        if ($this->isProvided('name')) {
+            $data['name'] = $this->name;   // sent - may be null (clear the value)
+        }
+        if ($this->isProvided('note')) {
+            $data['note'] = $this->note;
+        }
+        return $data;                       // not sent = not changed
+    }
+}
+```
+
+- Tracking is by **PHP property name** (also for `#[MapProperty(name: ...)]`, `path`, promoted constructor
+  parameters); every nested object / array element implementing the interface tracks its own fields.
+- `merge()` adds the merged fields to the tracked set.
+- The tracking itself is never written to output nor hydrated from input; strict mode reports its key as unknown.
+- Required fields (`string $x` without a default) are still reported as missing (`ValidationException`) - for PATCH,
+  declare fields nullable or with a default. A missing nullable property without a default is set to `null`.
+
 ## Class Definitions
 
 ### With MapProperty Attribute (recommended for custom names)
