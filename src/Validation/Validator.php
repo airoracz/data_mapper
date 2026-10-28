@@ -14,6 +14,15 @@ use ReflectionProperty;
  */
 class Validator
 {
+    /**
+     * Objects on the current #[Valid] recursion path (spl_object_id => true).
+     * Path-scoped, not global: an object shared by two branches is validated on each path,
+     * only a cycle back to an ancestor is skipped.
+     *
+     * @var array<int, true>
+     */
+    private array $validationPath = [];
+
     public function __construct(
         private readonly ?ValidatorResolverInterface $validatorResolver = null,
     ) {
@@ -89,6 +98,26 @@ class Validator
      */
     private function validateObject(object $object, string $pathPrefix, array $activeGroups): array
     {
+        $objectId = spl_object_id($object);
+        if (isset($this->validationPath[$objectId])) {
+            // Cycle back to an ancestor - it is already being validated
+            return [];
+        }
+
+        $this->validationPath[$objectId] = true;
+        try {
+            return $this->validateObjectMembers($object, $pathPrefix, $activeGroups);
+        } finally {
+            unset($this->validationPath[$objectId]);
+        }
+    }
+
+    /**
+     * @param array<string> $activeGroups Active validation groups
+     * @return array<string, string> Flat array of path => error message
+     */
+    private function validateObjectMembers(object $object, string $pathPrefix, array $activeGroups): array
+    {
         $reflection = new ReflectionClass($object);
         $errors = [];
 
@@ -135,7 +164,10 @@ class Validator
         $propertyName = $property->getName();
         $fullPath = $pathPrefix !== '' ? $pathPrefix . '.' . $propertyName : $propertyName;
 
-        // Get all Assert attributes
+        // Only the first failing assert per property is reported, but #[Valid] always runs -
+        // otherwise nested errors would depend on attribute order
+        $hasError = false;
+
         foreach ($property->getAttributes() as $attribute) {
             $instance = $attribute->newInstance();
 
@@ -162,6 +194,10 @@ class Validator
                 continue;
             }
 
+            if ($hasError) {
+                continue;
+            }
+
             if ($instance instanceof ConstraintInterface) {
                 if (!$this->matchesGroups($instance, $activeGroups)) {
                     continue;
@@ -175,7 +211,7 @@ class Validator
                 $error = $validator->validate($value, $instance, $object);
                 if ($error !== null) {
                     $errors[$fullPath] = $error;
-                    break;
+                    $hasError = true;
                 }
                 continue;
             }
@@ -189,7 +225,7 @@ class Validator
                 $error = $instance->validate($value, $propertyName);
                 if ($error !== null) {
                     $errors[$fullPath] = $error;
-                    break; // Take first error per property
+                    $hasError = true;
                 }
             }
         }
