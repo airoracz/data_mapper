@@ -49,6 +49,9 @@ class UnitEnumType implements TypeInterface
      * @param bool $isNullable Whether the field accepts null values
      * @return T|null The enum instance
      */
+    /** @var array<string, UnitEnum>|null */
+    private ?array $casesByName = null;
+
     public function denormalize(mixed $value, string $fieldName, bool $isNullable): mixed
     {
         if ($value === null) {
@@ -73,13 +76,17 @@ class UnitEnumType implements TypeInterface
             );
         }
 
-        $caseName = (string) $value;
-
-        // Find the matching case
-        foreach (($this->enumClass)::cases() as $case) {
-            if ($case->name === $caseName) {
-                return $case;
+        // Find the matching case (name => case map built once per type handler)
+        if ($this->casesByName === null) {
+            $this->casesByName = [];
+            foreach (($this->enumClass)::cases() as $case) {
+                $this->casesByName[$case->name] = $case;
             }
+        }
+
+        $caseName = (string) $value;
+        if (isset($this->casesByName[$caseName])) {
+            return $this->casesByName[$caseName];
         }
 
         // No matching case found
