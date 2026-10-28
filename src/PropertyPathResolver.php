@@ -14,6 +14,15 @@ use InvalidArgumentException;
  */
 class PropertyPathResolver
 {
+    private const MAX_PARSED_PATHS = 1000;
+
+    /**
+     * Parsed path segments (parsing is pure, so results are reused). Invalid paths throw and are not stored.
+     *
+     * @var array<string, array<int, array{type: string, key?: string, index?: int}>>
+     */
+    private static array $parsedPaths = [];
+
     /**
      * Resolves a property path in the given data array
      *
@@ -112,6 +121,24 @@ class PropertyPathResolver
      * @throws InvalidArgumentException If path syntax is invalid
      */
     private static function parsePath(string $path): array
+    {
+        if (isset(self::$parsedPaths[$path])) {
+            return self::$parsedPaths[$path];
+        }
+
+        // Bounded: paths may come from callers of the public API, not only from attributes
+        if (count(self::$parsedPaths) >= self::MAX_PARSED_PATHS) {
+            self::$parsedPaths = [];
+        }
+
+        return self::$parsedPaths[$path] = self::parsePathUncached($path);
+    }
+
+    /**
+     * @return array<int, array{type: string, key?: string, index?: int}> Parsed segments
+     * @throws InvalidArgumentException If path syntax is invalid
+     */
+    private static function parsePathUncached(string $path): array
     {
         $segments = [];
         $length = strlen($path);
