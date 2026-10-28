@@ -180,15 +180,14 @@ class Denormalizer
             $this->ownsRootPayload = true;
         }
 
-        // Push current payload FIRST to get correct depth
-        $this->contextStack[] = $data;
-
-        // Get current depth (how many denormalize calls deep we are)
-        $currentDepth = count($this->contextStack);
+        // Depth of this call once its payload is pushed (how many denormalize calls deep we are)
+        $currentDepth = count($this->contextStack) + 1;
 
         // Detect circular references: if this class is already being processed at a SHALLOWER depth,
         // it's a cycle. If it's at the SAME depth, it's a sibling (e.g., array elements) which is OK.
+        // Checked before any state is pushed, so the exception leaves this instance clean.
         if (isset($this->classDepthMap[$className]) && $this->classDepthMap[$className] < $currentDepth) {
+            $this->releaseRootPayloadIfOwned();
             $stack = array_keys($this->classDepthMap);
             throw new \Pocta\DataMapper\Exceptions\CircularReferenceException(
                 sprintf(
@@ -199,8 +198,12 @@ class Denormalizer
             );
         }
 
-        // Record this class at current depth
-        $this->classDepthMap[$className] = $currentDepth;
+        $this->contextStack[] = $data;
+
+        // Record the requested class at current depth (before discriminator resolution,
+        // so the same key is removed in finally)
+        $requestedClassName = $className;
+        $this->classDepthMap[$requestedClassName] = $currentDepth;
 
         try {
             // Resolve the actual class to instantiate (handles discriminator mapping)
@@ -229,15 +232,24 @@ class Denormalizer
                 throw new ValidationException($newErrors);
             }
 
-            if (empty($this->contextStack) && $this->ownsRootPayload) {
-                $this->typeResolver->setRootPayload(null);
-                $this->ownsRootPayload = false;
-            }
             return $result;
         } finally {
             // Always clean up stack and depth map
             array_pop($this->contextStack);
-            unset($this->classDepthMap[$className]);
+            unset($this->classDepthMap[$requestedClassName]);
+            $this->releaseRootPayloadIfOwned();
+        }
+    }
+
+    /**
+     * Clears the root payload set by the outermost call of this instance, so the next
+     * independent call does not see a stale payload (HydrationMode::FULL).
+     */
+    private function releaseRootPayloadIfOwned(): void
+    {
+        if ($this->contextStack === [] && $this->ownsRootPayload) {
+            $this->typeResolver->setRootPayload(null);
+            $this->ownsRootPayload = false;
         }
     }
 

@@ -284,6 +284,7 @@ class Mapper
      *
      * @throws InvalidInputException When data is a non-empty list instead of an associative array.
      * @throws \Pocta\DataMapper\Exceptions\ValidationException
+     * @throws \Pocta\DataMapper\Exceptions\CircularReferenceException When a class is nested in itself.
      */
     public function fromArray(array $data, string $className): object
     {
