@@ -317,146 +317,111 @@ class RedisCache implements CacheInterface
         );
     }
 
-    // Wrapper methods for phpredis vs Predis compatibility
+    // Wrapper methods for phpredis vs Predis compatibility. Both clients share the same method names
+    // (PHP method names are case-insensitive); only return types differ for the writes below.
 
     private function redisGet(string $key): mixed
     {
-        if ($this->isPredis) {
-            /** @phpstan-ignore method.notFound */
-            return $this->redis->get($key);
-        }
         /** @phpstan-ignore method.notFound */
         return $this->redis->get($key);
     }
 
     private function redisSet(string $key, string $value): bool
     {
-        if ($this->isPredis) {
-            /** @phpstan-ignore method.notFound */
-            $result = $this->redis->set($key, $value);
-            return $result !== null && $result !== false;
-        }
         /** @phpstan-ignore method.notFound */
-        return $this->redis->set($key, $value);
+        return $this->isWriteSuccessful($this->redis->set($key, $value));
     }
 
     private function redisSetEx(string $key, int $ttl, string $value): bool
     {
+        /** @phpstan-ignore method.notFound */
+        return $this->isWriteSuccessful($this->redis->setex($key, $ttl, $value));
+    }
+
+    /**
+     * phpredis returns bool, Predis a status object (or null on failure).
+     */
+    private function isWriteSuccessful(mixed $result): bool
+    {
         if ($this->isPredis) {
-            /** @phpstan-ignore method.notFound */
-            $result = $this->redis->setex($key, $ttl, $value);
             return $result !== null && $result !== false;
         }
-        /** @phpstan-ignore method.notFound */
-        return $this->redis->setex($key, $ttl, $value);
+
+        return (bool) $result;
     }
 
     private function redisExists(string $key): bool
     {
-        if ($this->isPredis) {
-            /** @phpstan-ignore method.notFound */
-            return $this->redis->exists($key) > 0;
-        }
         /** @phpstan-ignore method.notFound */
         return $this->redis->exists($key) > 0;
     }
 
     private function redisDel(string ...$keys): int
     {
-        if ($this->isPredis) {
-            /** @phpstan-ignore method.notFound */
-            return $this->redis->del($keys);
-        }
         /** @phpstan-ignore method.notFound */
         return $this->redis->del($keys);
     }
 
     /**
-     * @return array<string>
+     * @return array<int, string>
      */
     private function redisKeys(string $pattern): array
     {
-        if ($this->isPredis) {
-            /** @phpstan-ignore method.notFound */
-            $keys = $this->redis->keys($pattern);
-            return is_array($keys) ? array_values(array_filter($keys, 'is_string')) : [];
-        }
         /** @phpstan-ignore method.notFound */
-        $result = $this->redis->keys($pattern);
-        return is_array($result) ? array_values(array_filter($result, 'is_string')) : [];
+        $keys = $this->redis->keys($pattern);
+
+        return is_array($keys) ? array_values(array_filter($keys, 'is_string')) : [];
     }
 
     private function redisTtl(string $key): int
     {
-        if ($this->isPredis) {
-            /** @phpstan-ignore method.notFound */
-            return $this->redis->ttl($key);
-        }
         /** @phpstan-ignore method.notFound */
         return $this->redis->ttl($key);
     }
 
     private function redisExpire(string $key, int $ttl): bool
     {
-        if ($this->isPredis) {
-            /** @phpstan-ignore method.notFound */
-            return $this->redis->expire($key, $ttl) === 1;
-        }
         /** @phpstan-ignore method.notFound */
-        return $this->redis->expire($key, $ttl);
+        $result = $this->redis->expire($key, $ttl);
+
+        // Predis returns int 1/0, phpredis bool
+        return $this->isPredis ? $result === 1 : $result;
     }
 
     private function redisPersist(string $key): bool
     {
-        if ($this->isPredis) {
-            /** @phpstan-ignore method.notFound */
-            return $this->redis->persist($key) === 1;
-        }
         /** @phpstan-ignore method.notFound */
-        return $this->redis->persist($key);
+        $result = $this->redis->persist($key);
+
+        // Predis returns int 1/0, phpredis bool
+        return $this->isPredis ? $result === 1 : $result;
     }
 
     private function redisIncrBy(string $key, int $value): int|false
     {
-        if ($this->isPredis) {
-            /** @phpstan-ignore method.notFound */
-            return $this->redis->incrby($key, $value);
-        }
         /** @phpstan-ignore method.notFound */
         return $this->redis->incrBy($key, $value);
     }
 
     private function redisDecrBy(string $key, int $value): int|false
     {
-        if ($this->isPredis) {
-            /** @phpstan-ignore method.notFound */
-            return $this->redis->decrby($key, $value);
-        }
         /** @phpstan-ignore method.notFound */
         return $this->redis->decrBy($key, $value);
     }
 
     /**
-     * @return array<string, mixed>
+     * @return array<mixed>
      */
     private function redisInfo(): array
     {
-        if ($this->isPredis) {
-            /** @phpstan-ignore method.notFound */
-            $result = $this->redis->info();
-            return is_array($result) ? $result : [];
-        }
         /** @phpstan-ignore method.notFound */
         $result = $this->redis->info();
-        return $result;
+
+        return is_array($result) ? $result : [];
     }
 
     private function redisPing(): mixed
     {
-        if ($this->isPredis) {
-            /** @phpstan-ignore method.notFound */
-            return $this->redis->ping();
-        }
         /** @phpstan-ignore method.notFound */
         return $this->redis->ping();
     }
