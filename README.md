@@ -1,6 +1,6 @@
 # Data Mapper
 
-[![CI](https://github.com/igorpocta/data_mapper/actions/workflows/ci.yml/badge.svg)](https://github.com/igorpocta/data-mapper/actions/workflows/ci.yml)
+[![CI](https://github.com/airoracz/data_mapper/actions/workflows/ci.yml/badge.svg)](https://github.com/airoracz/data_mapper/actions/workflows/ci.yml)
 [![PHP Version](https://img.shields.io/badge/PHP-8.1%2B-blue)](https://php.net)
 [![PHPStan Level](https://img.shields.io/badge/PHPStan-level%209-brightgreen)](https://phpstan.org)
 
@@ -14,8 +14,15 @@ High-performance and type-safe PHP library for bidirectional data mapping betwee
 ## Installation
 
 ```bash
-composer require igorpocta/data-mapper
+composer require airora/data-mapper
 ```
+
+> The package was previously published as `igorpocta/data-mapper`. `airora/data-mapper` replaces it (same code,
+> same `Pocta\DataMapper` namespace, continuous versions) - switch the requirement name:
+>
+> ```bash
+> composer remove igorpocta/data-mapper && composer require airora/data-mapper
+> ```
 
 ## Quick Start
 

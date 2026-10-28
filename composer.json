@@ -1,5 +1,5 @@
 {
-	"name": "igorpocta/data-mapper",
+	"name": "airora/data-mapper",
 	"description": "Lightweight PHP library for mapping data to objects and back (e.g. JSON ↔ object).",
 	"type": "library",
 	"license": "MIT",
@@ -9,6 +9,9 @@
 			"email": "igorpocta@qadata.cz"
 		}
 	],
+	"replace": {
+		"igorpocta/data-mapper": "self.version"
+	},
 	"require": {
 		"php": "^8.1"
 	},
