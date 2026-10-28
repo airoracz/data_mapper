@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Pocta\DataMapper\Cache\RedisCache;
 use Redis;
@@ -19,6 +20,7 @@ use Redis;
  * - Docker: docker run -d -p 6379:6379 redis:alpine
  * - Linux: sudo apt-get install redis-server && sudo service redis-server start
  */
+#[Group('redis')]
 class RedisCacheTest extends TestCase
 {
     private RedisCache $cache;
