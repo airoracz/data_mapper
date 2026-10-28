@@ -1060,9 +1060,15 @@ class Mapper
                 fputcsv($output, $headers, $delimiter, $enclosure, $escape);
             }
 
-            // Write data
+            // Write data - the first object is already normalized (headers), reuse it
+            $firstPending = true;
             foreach ($collection as $object) {
-                $data = $this->toArray($object);
+                if ($firstPending && $object === $collection[0]) {
+                    $data = $first;
+                    $firstPending = false;
+                } else {
+                    $data = $this->toArray($object);
+                }
                 $row = [];
                 foreach ($headers as $header) {
                     $row[] = $data[$header] ?? '';
