@@ -95,8 +95,8 @@ $mapper->addEventListener(DenormalizationErrorEvent::class, function(Denormaliza
         'error' => $exception->getMessage()
     ]);
 
-    // Suppress exception (won't be re-thrown)
-    // $event->suppressException();
+    // Note: the exception is always re-thrown after this event - catch it in the caller.
+    // ($event->suppressException() only sets a flag; Mapper does not honour it.)
 });
 ```
 

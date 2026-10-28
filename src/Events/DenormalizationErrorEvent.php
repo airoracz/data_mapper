@@ -26,13 +26,12 @@ class DenormalizationErrorEvent extends AbstractEvent
     ) {
     }
 
-    /**
-     * Check if exception should be suppressed (not re-thrown)
-     */
     private bool $suppressException = false;
 
     /**
-     * Suppress exception - denormalization will return null instead of throwing
+     * Marks the exception as suppressed. Note: Mapper does not honour this flag - the exception is
+     * always re-thrown (returning null would break the non-nullable return type). Use the event for
+     * logging/monitoring and catch the exception in the caller.
      */
     public function suppressException(): void
     {

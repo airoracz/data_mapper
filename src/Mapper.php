@@ -347,17 +347,11 @@ class Mapper
 
             return $object;
         } catch (\Throwable $e) {
-            // Dispatch error event
-            $errorEvent = new DenormalizationErrorEvent($e, $data, $className);
-            $this->eventDispatcher->dispatch($errorEvent);
+            // Dispatch error event (for logging); the exception is always re-thrown -
+            // suppressing it would require a nullable return type
+            $this->eventDispatcher->dispatch(new DenormalizationErrorEvent($e, $data, $className));
 
-            // Re-throw if not suppressed
-            if (!$errorEvent->isExceptionSuppressed()) {
-                throw $e;
-            }
-
-            // Return null if suppressed (would need nullable return type in real impl)
-            throw $e; // For now still throw
+            throw $e;
         } finally {
             // Clear root payload after denormalization
             $this->typeResolver->setRootPayload(null);

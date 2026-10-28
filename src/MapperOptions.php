@@ -62,11 +62,8 @@ class MapperOptions
      */
     public static function development(): self
     {
-        return new self(
-            autoValidate: true,
-            strictMode: true,
-            throwOnMissingData: true
-        );
+        // Same as strict() - throwOnMissingData is enabled by default
+        return self::strict();
     }
 
     /**
@@ -74,11 +71,8 @@ class MapperOptions
      */
     public static function production(): self
     {
-        return new self(
-            autoValidate: false,
-            strictMode: false,
-            throwOnMissingData: true
-        );
+        // Same as the defaults
+        return new self();
     }
 
     /**
